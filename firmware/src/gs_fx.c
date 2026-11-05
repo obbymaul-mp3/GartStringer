@@ -246,7 +246,7 @@ static void gs_glitch(int32_t *l, int32_t *r, uint32_t n)
                 gl.rate -= gl.rate >> 11;
                 if (gl.rate < 600)
                     gl.rate = 600;
-                if ((sk_f.gwp << 8) - (uint32_t)gl.pos > (GS_GLN - 600u) * 256u)
+                if (sk_f.gwp - ((uint32_t)gl.pos >> 8) > GS_GLN - 600u)
                     gl.pos = (int32_t)((sk_f.gwp - (GS_GLN - 600u)) << 8);
             } else if (gl.kind == 3u) {                            /* drop-out: the dry goes, the tails stay */
                 gl.mute -= gl.mute >> 7;
