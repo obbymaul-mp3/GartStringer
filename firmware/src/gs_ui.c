@@ -23,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SEQ3, PG_SAVE, PG_N };
 
 static int32_t sk_in_enc(uint32_t role);
 static void sk_in_buttons(uint32_t *held, uint32_t *pressed);
@@ -58,6 +58,7 @@ static const ui_page_t UI_PG[PG_N] = {
     {"GLITCH", {"ODDS", "LENGTH", "KIND", "CRUSH"}, {P_GLP, P_GLL, P_GLT, P_CRU}, P_GLT, 2},
     {"SEQUENCER", {"NOTE", "TYPE", "SHIFT", "DICE"}, {255, 255, 255, 255}, 255, 1},
     {"SEQ SETUP", {"RATE", "LENGTH", "SWING", "GATE"}, {P_SRATE, P_SLEN, P_SSWG, P_SGATE}, P_SDIR, 1},
+    {"SEQ TOOLS", {"COPY", "CLEAR", "REPEAT", "ROTATE"}, {255, 255, 255, 255}, 255, 1},
     {"SAVE", {"SLOT", "DO", "", ""}, {255, 255, 255, 255}, 255, 0},
 };
 
@@ -67,7 +68,8 @@ static struct {
     uint32_t k_t[4];                     /* when a knob was last touched */
     uint32_t pop_t, hud_t;               /* the patch name's pop, the HUD */
     uint8_t slot, act;
-    uint8_t cur;                         /* the sequencer page's step */
+    uint8_t cur;                         /* the sequencer page's step, 0..127 */
+    uint32_t cur_t;                      /* when it was last moved (the view follows the playhead after a while) */
     int8_t shift;                        /* what the pattern has been shifted by (shown) */
     uint8_t keys_down[27];
     uint32_t keys_held;
@@ -79,7 +81,7 @@ static struct {
 } ui;
 
 #define SV_N 8
-#define SV_SLOT 96
+#define SV_SLOT (4 + P_N + 2 * GS_NS)
 static struct {
     uint32_t magic;
     uint8_t slot[SV_N][SV_SLOT];
@@ -87,6 +89,7 @@ static struct {
 } sv;
 #define SV_MAGIC 0x31545347u                 /* "GST1" */
 
+static void ui_seq_grow(uint32_t now);
 static int ui_clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static char *ui_num(char *p, int v)
 {
@@ -130,6 +133,7 @@ static const char *ui_val(uint32_t idx, char *buf)
     case P_ARATE: return GS_AR_NAME[v % 5];
     case P_GLL: return GS_GLL_NAME[v % 5];
     case P_GLT: return GS_GL_NAME[v & 3];
+    case P_SLEN: ui_num(buf, v + 1); return buf;
     case P_SRATE: return GS_GR_NAME[v & 3];
     case P_SDIR: return GS_SD_NAME[v & 3];
     case P_AON: return v ? "ON" : "OFF";
@@ -161,7 +165,6 @@ static int ui_maxv(uint32_t idx)
     case P_ARNG: return 3;
     case P_AON: return 1;
     case P_SRATE: return 3;
-    case P_SLEN: return 16;
     case P_SDIR: return 3;
     case P_GLL: return 4;
     case P_GLT: return 3;
@@ -170,6 +173,7 @@ static int ui_maxv(uint32_t idx)
     }
 }
 
+static void ui_toast(const char *a, uint32_t now);
 static void ui_toast(const char *a, uint32_t now)
 {
     char *p = ui.toast;
@@ -177,6 +181,17 @@ static void ui_toast(const char *a, uint32_t now)
         *p++ = *a++;
     *p = 0;
     ui.toast_t = now;
+}
+
+/* writing a step past the end of the pattern stretches the pattern to it, so a long one is built by just writing on */
+static void ui_seq_grow(uint32_t now)
+{
+    if (ui.cur > gs.p[P_SLEN]) {
+        char b[20], *p = ui_str(b, "LENGTH ");
+        gs.p[P_SLEN] = ui.cur;
+        ui_num(p, ui.cur + 1);
+        ui_toast(b, now);
+    }
 }
 
 /* ----------------------------------------------------------------- the saved slots --- */
@@ -197,9 +212,9 @@ static void sv_pack(uint8_t *d)
     d[3] = (uint8_t)gs.oct;
     for (i = 0; i < P_N; i++)
         d[4u + i] = gs.p[i];
-    for (i = 0; i < 16u; i++) {
+    for (i = 0; i < GS_NS; i++) {
         d[4u + P_N + i] = gs.sq_n[i];
-        d[4u + P_N + 16u + i] = gs.sq_f[i];
+        d[4u + P_N + GS_NS + i] = gs.sq_f[i];
     }
 }
 static void sv_unpack(const uint8_t *d)
@@ -216,11 +231,9 @@ static void sv_unpack(const uint8_t *d)
     }
     if (gs.p[P_ARNG] < 1u)
         gs.p[P_ARNG] = 1;
-    if (gs.p[P_SLEN] < 1u)
-        gs.p[P_SLEN] = 16;
-    for (i = 0; i < 16u; i++) {
+    for (i = 0; i < GS_NS; i++) {
         gs.sq_n[i] = (uint8_t)ui_clamp(d[4u + P_N + i], 0, 36);
-        gs.sq_f[i] = d[4u + P_N + 16u + i] & 7u;
+        gs.sq_f[i] = d[4u + P_N + GS_NS + i] & 7u;
     }
     gs.snote = -1;
     gs.sslide = 0;
@@ -336,8 +349,19 @@ static void ui_input(uint32_t now)
         ui_page_press(PG_LFO, 255);
     if (pr & (1u << SB_FX))
         ui_page_press(PG_FX, PG_FX2);
-    if (pr & (1u << SB_SEQ))
-        ui_page_press(PG_SEQ, PG_SEQ2);
+    if (pr & (1u << SB_SEQ)) {                                      /* the sequencer: edit, setup, tools, out */
+        if (ui.page == PG_SEQ)
+            ui.page = PG_SEQ2;
+        else if (ui.page == PG_SEQ2)
+            ui.page = PG_SEQ3;
+        else if (ui.page == PG_SEQ3)
+            ui.page = PG_HOME;
+        else {
+            ui.page = PG_SEQ;
+            ui.cur_t = now;
+            ui_toast(gs.srun ? "SEQ RUNNING" : "KEYS WRITE  PLAY RUNS", now);
+        }
+    }
     if (pr & (1u << SB_GLO))
         ui_page_press(PG_GLITCH, PG_GATE);
     if (pr & (1u << SB_ARP)) {
@@ -359,7 +383,7 @@ static void ui_input(uint32_t now)
             ui.page = PG_SAVE;
     }
     if (pr & (1u << SB_PLAY)) {
-        if (ui.page == PG_SEQ || ui.page == PG_SEQ2) {              /* on the sequencer's pages PLAY runs it */
+        if (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) {   /* on the sequencer's pages PLAY runs it */
             if (gs.srun) {
                 gs_seq_stop();
                 ui_toast("SEQ STOP", now);
@@ -377,6 +401,12 @@ static void ui_input(uint32_t now)
         }
     }
     gl.manual = (uint8_t)((held >> SB_REC) & 1u);
+    if ((pr & ((1u << SB_OCTDN) | (1u << SB_OCTUP))) && (ui.page == PG_SEQ || ui.page == PG_SEQ3)) {   /* on the editing pages OCT jumps a bar */
+        int dir = (pr & (1u << SB_OCTUP)) ? 1 : -1;
+        ui.cur = (uint8_t)ui_clamp((int)ui.cur + 16 * dir, 0, GS_NS - 1);
+        ui.cur_t = now;
+        pr &= ~((1u << SB_OCTDN) | (1u << SB_OCTUP));
+    }
     if (pr & (1u << SB_OCTDN)) {
         if (gs.srun && gs.sroot >= 12u)
             gs.sroot = (uint8_t)(gs.sroot - 12u);
@@ -401,7 +431,9 @@ static void ui_input(uint32_t now)
                 int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36);
                 gs.sq_n[ui.cur] = (uint8_t)n;
                 gs.sq_f[ui.cur] = (uint8_t)((gs.sq_f[ui.cur] & 6u) | 1u);
-                ui.cur = (uint8_t)((ui.cur + 1u) & 15u);
+                ui_seq_grow(now);
+                ui.cur = (uint8_t)ui_clamp((int)ui.cur + 1, 0, GS_NS - 1);
+                ui.cur_t = now;
             }
             gs_key((uint32_t)note, 1);
         } else if (!on && ui.keys_down[i]) {
@@ -420,9 +452,10 @@ static void ui_input(uint32_t now)
         ui.hud_t = now;
     }
     d = ui_enc(SE_ALGO);
-    if (d && ui.page == PG_SEQ) {
-        ui.cur = (uint8_t)ui_clamp((int)ui.cur + (d > 0 ? 1 : -1), 0, 15);
-        ui.k_t[0] = now;
+    if (d && (ui.page == PG_SEQ || ui.page == PG_SEQ3)) {           /* a quick turn moves a bar */
+        int st = (d > 2 || d < -2) ? 16 : 1;
+        ui.cur = (uint8_t)ui_clamp((int)ui.cur + (d > 0 ? st : -st), 0, GS_NS - 1);
+        ui.cur_t = now;
     } else if (d && UI_PG[ui.page].algo != 255u) {
         uint32_t idx = UI_PG[ui.page].algo;
         gs_set(idx, (int)gs.p[idx] + (d > 0 ? 1 : -1));
@@ -435,35 +468,93 @@ static void ui_input(uint32_t now)
         if (ui.page == PG_SEQ) {
             int sg = d > 0 ? 1 : -1;
             ui.k_t[i] = now;
+            ui.cur_t = now;
             if (i == 0u) {
                 gs.sq_n[ui.cur] = (uint8_t)ui_clamp((int)gs.sq_n[ui.cur] + d, 0, 36);
                 gs.sq_f[ui.cur] |= 1u;
+                ui_seq_grow(now);
             } else if (i == 1u) {
                 uint8_t f = gs.sq_f[ui.cur];
                 int t = !(f & 1u) ? 0 : (f & 4u) ? ((f & 2u) ? 4 : 3) : (f & 2u) ? 2 : 1;
                 static const uint8_t TF[5] = {0, 1, 3, 5, 7};
                 gs.sq_f[ui.cur] = TF[ui_clamp(t + sg, 0, 4)];
+                if (gs.sq_f[ui.cur])
+                    ui_seq_grow(now);
             } else if (i == 2u) {                                   /* shift the whole pattern, if none would leave the range */
                 int k, ok = 1;
-                for (k = 0; k < 16; k++)
+                for (k = 0; k < GS_NS; k++)
                     if ((gs.sq_f[k] & 1u) && ((int)gs.sq_n[k] + sg < 0 || (int)gs.sq_n[k] + sg > 36))
                         ok = 0;
                 if (ok) {
-                    for (k = 0; k < 16; k++)
+                    for (k = 0; k < GS_NS; k++)
                         if (gs.sq_f[k] & 1u)
                             gs.sq_n[k] = (uint8_t)((int)gs.sq_n[k] + sg);
                     ui.shift = (int8_t)ui_clamp(ui.shift + sg, -99, 99);
                 }
-            } else {                                                /* dice: a new pattern in the trance minor */
+            } else {                                                /* dice: a new bar in the trance minor */
                 static const uint8_t SC[9] = {0, 0, 3, 5, 7, 7, 10, 12, 15};
-                int k;
-                for (k = 0; k < 16; k++) {
+                int k, b0 = ui.cur & ~15;
+                for (k = b0; k < b0 + 16; k++) {
                     uint32_t r = sk_rand();
-                    int on = (k & 3) == 0 ? (r & 15u) < 14u : (r & 15u) < 10u;
+                    int on = ((k & 15) & 3) == 0 ? (r & 15u) < 14u : (r & 15u) < 10u;
                     gs.sq_n[k] = (uint8_t)(12 + SC[(r >> 4) % 9u] - ((r >> 12) % 6u == 0u ? 12 : 0));
                     gs.sq_f[k] = on ? (uint8_t)(1u | (((r >> 16) % 5u == 0u) ? 2u : 0u) | (((r >> 20) % 8u == 0u) ? 4u : 0u)) : 0u;
                 }
                 ui.shift = 0;
+            }
+            continue;
+        }
+        if (ui.page == PG_SEQ3) {                                   /* the bar the cursor is in: copy, clear, repeat, rotate */
+            int b0 = ui.cur & ~15, sg = d > 0 ? 1 : -1, k;
+            char tb[20], *tp;
+            uint8_t tn[16], tf[16];
+            ui.k_t[i] = now;
+            ui.cur_t = now;
+            if (i == 0u) {                                          /* right: this bar into the next; left: the last bar into this one */
+                int src = sg > 0 ? b0 : b0 - 16, dst = sg > 0 ? b0 + 16 : b0;
+                if (src >= 0 && dst < GS_NS) {
+                    for (k = 0; k < 16; k++) {
+                        gs.sq_n[dst + k] = gs.sq_n[src + k];
+                        gs.sq_f[dst + k] = gs.sq_f[src + k];
+                    }
+                    if (sg > 0)
+                        ui.cur = (uint8_t)(ui.cur + 16);
+                    tp = ui_str(tb, "BAR ");
+                    tp = ui_num(tp, src / 16 + 1);
+                    tp = ui_str(tp, " TO ");
+                    ui_num(tp, dst / 16 + 1);
+                    ui_toast(tb, now);
+                }
+            } else if (i == 1u) {
+                for (k = 0; k < 16; k++) {
+                    gs.sq_n[b0 + k] = 12;
+                    gs.sq_f[b0 + k] = 0;
+                }
+                tp = ui_str(tb, "BAR ");
+                tp = ui_num(tp, b0 / 16 + 1);
+                ui_str(tp, " CLEARED");
+                ui_toast(tb, now);
+            } else if (i == 2u) {                                   /* this bar over every later bar inside the length */
+                int len = gs.p[P_SLEN] + 1, bb;
+                for (bb = b0 + 16; bb < len && bb < GS_NS; bb += 16)
+                    for (k = 0; k < 16 && bb + k < GS_NS; k++) {
+                        gs.sq_n[bb + k] = gs.sq_n[b0 + k];
+                        gs.sq_f[bb + k] = gs.sq_f[b0 + k];
+                    }
+                tp = ui_str(tb, "BAR ");
+                tp = ui_num(tp, b0 / 16 + 1);
+                ui_str(tp, " REPEATED");
+                ui_toast(tb, now);
+            } else {                                                /* the bar's steps one place along */
+                for (k = 0; k < 16; k++) {
+                    int from = (k - sg) & 15;
+                    tn[k] = gs.sq_n[b0 + from];
+                    tf[k] = gs.sq_f[b0 + from];
+                }
+                for (k = 0; k < 16; k++) {
+                    gs.sq_n[b0 + k] = tn[k];
+                    gs.sq_f[b0 + k] = tf[k];
+                }
             }
             continue;
         }
@@ -486,7 +577,7 @@ static void ui_input(uint32_t now)
         static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && ui.page == PG_SEQ2)))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && (ui.page == PG_SEQ2 || ui.page == PG_SEQ3))))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
@@ -894,17 +985,31 @@ static void vz_gate(uint32_t now)
     }
 }
 
-/* the sequencer: sixteen columns on the floor, tall by their note; a rest is a flat slab, an accent burns red, a slide has a bridge to the
- * next; the step playing glows, steps past the length are dim silver, and on the edit page a marker shows the step the knobs write */
+/* a note's name: the key's own note plus the step's semitones (the FM-1's lowest key is C3, note 48) */
+static const char *const UI_NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+static char *ui_note_name(char *p, int note)
+{
+    note = note < 0 ? 0 : note > 127 ? 127 : note;
+    p = ui_str(p, UI_NN[note % 12]);
+    return ui_num(p, note / 12 - 1);
+}
+static int ui_step_note(int s) { return (int)gs.sroot + (int)gs.sq_n[s] - 12; }
+
+/* the sequencer: the bar you are in as sixteen columns on the floor (tall by the note, a rest a flat slab, an accent red, a slide with a
+ * bridge to the next), a beat ruler under it, the note's name over the step you are on, and under that a map of all the bars: the
+ * one in view framed, the playhead lit, steps past the length dim. The view follows the playhead while it runs and nobody is editing. */
 static void vz_seq(uint32_t now)
 {
-    int i, len = gs.p[P_SLEN] ? gs.p[P_SLEN] : 16, run = gs.srun;
-    g3_cam(VX + VW / 2, VY + 62, 260, 260, 60);
+    int i, len = (int)gs.p[P_SLEN] + 1, run = gs.srun, edit = ui.page != PG_SEQ2;
+    int vb = (run && now - ui.cur_t > 2500u) ? gs.sstep / 16 : ui.cur / 16, b0 = vb * 16, nb = (len + 15) / 16;
+    if (nb < vb + 1)
+        nb = vb + 1;
+    char b[24], *p;
+    g3_cam(VX + VW / 2, VY + 55, 260, 260, 60);
     for (i = 0; i < 16; i++) {
-        uint8_t f = gs.sq_f[i];
-        int on = f & 1, h = on ? 8 + gs.sq_n[i] * 48 / 36 : 3, x = i * 13 - 97, playing = run && i == gs.sstep;
-        int out = i >= len;
-        if (!out && on && (f & 4) && i + 1 < len)                              /* the slide's bridge */
+        int s = b0 + i, out = s >= len, f = gs.sq_f[s], on = f & 1, h = on ? 6 + gs.sq_n[s] * 34 / 36 : 3, x = i * 13 - 97;
+        int playing = run && s == gs.sstep;
+        if (!out && on && (f & 4) && i < 15 && s + 1 < len)                     /* the slide's bridge */
             g3_draw(&G3_CUBE, x + 7, h / 2, 0, 3, 1, 1, 0, 0, 0, C_O0, 8, 2, C_O4);
         if (out)
             g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_S0, 4, 0, C_S1);
@@ -913,11 +1018,56 @@ static void vz_seq(uint32_t now)
         else
             g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
     }
-    if (ui.page == PG_SEQ) {                                                    /* the step the knobs write */
-        int x = VX + VW / 2 + ui.cur * 13 - 97, y = VY + VH - 8;
-        fb_rect(x - 5, y, 11, 3, ((now >> 8) & 1u) ? C_HOT : C_O6);
-        fb_pset(x, y - 1, C_HOT);
+    /* the ruler: a cell a step, the beats brighter, the playhead and the cursor marked */
+    for (i = 0; i < 16; i++) {
+        int s = b0 + i, x = VX + 6 + i * 13, out = s >= len;
+        uint8_t c = out ? C_K3 : ((i & 3) == 0 ? C_S3 : C_S1);
+        if (run && s == gs.sstep)
+            c = C_HOT;
+        else if (edit && s == ui.cur && ui.page != PG_SEQ2)
+            c = ((now >> 8) & 1u) ? C_HOT : C_O6;
+        fb_rect(x, VY + 61, 11, 3, c);
+        if ((i & 3) == 0) {
+            char nb_[3];
+            nb_[0] = (char)('1' + i / 4);
+            nb_[1] = 0;
+            fb_text(x + 3, VY + 63, nb_, out ? C_S0 : C_INK2);
+        }
     }
+    if (edit && ui.page != PG_SEQ2 && ui.cur >= b0 && ui.cur < b0 + 16) {       /* the step you are on: its name over it */
+        int s = ui.cur, i2 = s - b0, x = VX + 6 + i2 * 13 + 5, f = gs.sq_f[s];
+        char *q = b;
+        if (f & 1)
+            q = ui_note_name(q, ui_step_note(s));
+        else
+            q = ui_str(q, "REST");
+        if (f & 2)
+            q = ui_str(q, "!");
+        if (x < VX + 22) x = VX + 22;
+        if (x > VX + VW - 22) x = VX + VW - 22;
+        fb_rect(x - 14, VY + 15, 28, 12, C_K1);
+        fb_frame(x - 14, VY + 15, 28, 12, C_HOT);
+        fb_text_c(x, VY + 16, b, C_HOT);
+        if (s >= len)
+            fb_text_c(VX + VW / 2, VY + 33, "PAST THE LENGTH", C_S4);
+    }
+    /* the map of the bars */
+    for (i = 0; i < GS_NS; i++) {
+        int s = i, x = VX + 5 + s + (s >> 4) * 3, h = (gs.sq_f[s] & 1) ? 2 + gs.sq_n[s] * 5 / 36 : 1;
+        uint8_t c = s >= len ? C_K3 : (gs.sq_f[s] & 2) ? C_R3 : (gs.sq_f[s] & 1) ? C_O5 : C_S1;
+        if (run && s == gs.sstep)
+            c = C_HOT;
+        fb_vline(x, VY + 83 - h, h, c);
+        if (s >> 4 == vb)
+            fb_pset(x, VY + 84, C_O6);
+        if (edit && s == ui.cur && ui.page != PG_SEQ2)
+            fb_pset(x, VY + 77, C_HOT);
+    }
+    p = ui_str(b, "BAR ");
+    p = ui_num(p, vb + 1);
+    p = ui_str(p, "/");
+    p = ui_num(p, nb);
+    fb_text_r(VX + VW - 4, VY + 74, b, C_O6);
 }
 
 /* the glitch: a cube of eight shards that comes apart as the kind says, beside what the kind does to a wave */
@@ -1207,6 +1357,7 @@ static void ui_draw(uint32_t now)
         break;
     case PG_SEQ:
     case PG_SEQ2:
+    case PG_SEQ3:
         vz_seq(now);
         break;
     default:
@@ -1221,14 +1372,14 @@ static void ui_draw(uint32_t now)
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
     if (ui.page == PG_HOME || ui.page == PG_OSC)
         fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
-    else if (ui.page == PG_SEQ || ui.page == PG_SEQ2) {
-        char b[16], *p = b;
-        if (ui.page == PG_SEQ) {
+    else if (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) {
+        char b[20], *p = b;
+        if (ui.page != PG_SEQ2) {
             p = ui_str(p, "STEP ");
             p = ui_num(p, ui.cur + 1);
-            p = ui_str(p, gs.srun ? "  RUN" : "  STOP");
-        } else
-            p = ui_str(p, gs.srun ? "RUN" : "STOP");
+            p = ui_str(p, "  ");
+        }
+        p = ui_str(p, gs.srun ? "RUN" : "STOP");
         fb_text_r(VX + VW - 12, VY + 3, b, gs.srun ? C_HOT : C_INK);
     }
     else if (ui.page == PG_FLT)
@@ -1258,11 +1409,11 @@ static void ui_draw(uint32_t now)
             static const char *const TN[5] = {"REST", "NOTE", "ACCENT", "SLIDE", "ACC+SLD"};
             int t = !(f & 1u) ? 0 : (f & 4u) ? ((f & 2u) ? 4 : 3) : (f & 2u) ? 2 : 1, cx = 6 + (int)i * 58 + 27;
             if (i == 0u) {
-                int n = (int)gs.sq_n[ui.cur] - 12;
                 char *p = b;
-                if (n > 0)
-                    *p++ = '+';
-                ui_num(p, n);
+                if (f & 1u)
+                    ui_note_name(p, ui_step_note(ui.cur));
+                else
+                    ui_str(p, "-");
                 ui_ov_v = gs.sq_n[ui.cur];
                 ui_ov_m = 36;
                 ui_plate(0, pg->k[0], 255, now, 1);
@@ -1288,14 +1439,28 @@ static void ui_draw(uint32_t now)
                 fb_text_c(cx, 156 + 31, "ROLL", C_O6);
             }
             ui_ov_m = 0;
+        } else if (ui.page == PG_SEQ3) {
+            static const char *const TH[4] = {"BAR>", "ERASE", "ALL", "STEP"};
+            char b[12], *p = b;
+            ui_ov_v = i == 0u ? ui.cur / 16 : 0;
+            ui_ov_m = i == 0u ? GS_NS / 16 - 1 : 1;
+            ui_plate((int)i, pg->k[i], 255, now, 1);
+            ui_ov_m = 0;
+            if (i == 0u) {
+                p = ui_str(p, "BAR ");
+                ui_num(p, ui.cur / 16 + 1);
+                fb_text_c(6 + 27, 156 + 31, b, C_O6);
+            } else
+                fb_text_c(6 + (int)i * 58 + 27, 156 + 31, TH[i], C_O6);
         } else
             ui_plate((int)i, pg->k[i], pg->p[i], now, 1);
     }
     if (ui.toast_t && now - ui.toast_t < 1200u) {
         int w = fb_text_w(ui.toast) + 20;
-        fb_rbox(120 - w / 2, 92, w, 20, 5, C_K1);
-        fb_frame(120 - w / 2, 92, w, 20, C_O5);
-        fb_text_c(120, 97, ui.toast, C_HOT);
+        int ty = (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) ? 54 : 92;
+        fb_rbox(120 - w / 2, ty, w, 20, 5, C_K1);
+        fb_frame(120 - w / 2, ty, w, 20, C_O5);
+        fb_text_c(120, ty + 5, ui.toast, C_HOT);
     }
     sk_present();
     (void)now;

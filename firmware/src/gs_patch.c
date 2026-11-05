@@ -13,9 +13,9 @@ static void gs_load(uint32_t i)
     for (k = 0; k < P_N; k++)
         gs.p[k] = GS_PRE[gs.preset].p[k];
     gs.bpm = GS_PRE[gs.preset].bpm;
-    for (k = 0; k < 16u; k++) {                                    /* the patch's sequence (the clock goes on if it runs) */
-        gs.sq_n[k] = GS_PRE[gs.preset].sq[k];
-        gs.sq_f[k] = GS_PRE[gs.preset].sq[16u + k];
+    for (k = 0; k < GS_NS; k++) {                                  /* the patch's bar, laid over all the bars (the clock goes on if it runs) */
+        gs.sq_n[k] = GS_PRE[gs.preset].sq[k & 15u];
+        gs.sq_f[k] = GS_PRE[gs.preset].sq[16u + (k & 15u)];
     }
     gs.snote = -1;
     gs.sslide = 0;
@@ -41,14 +41,14 @@ static void gs_set(uint32_t idx, int v)
     static const uint8_t MAXV[P_N] = {
         [P_MODE] = GS_NMODE - 1, [P_OCT] = 4, [P_FTYPE] = GS_NFT - 1, [P_LDST] = 4, [P_LSHP] = 3, [P_VMODE] = 2, [P_DTIM] = 5,
         [P_GPAT] = GS_NPAT - 1, [P_GRATE] = 3, [P_APAT] = 7, [P_ARATE] = 4, [P_ARNG] = 3, [P_AON] = 1, [P_GLL] = 4, [P_GLT] = 3,
-        [P_SRATE] = 3, [P_SLEN] = 16, [P_SDIR] = 3,
+        [P_SRATE] = 3, [P_SDIR] = 3,
     };
     int mx = MAXV[idx] ? MAXV[idx] : 127;
     if (v < 0)
         v = 0;
     if (v > mx)
         v = mx;
-    if ((idx == P_ARNG || idx == P_SLEN) && v < 1)
+    if (idx == P_ARNG && v < 1)
         v = 1;
     if (idx == P_AON && v && gs.srun)                             /* the arp and the sequence do not play together */
         gs_seq_stop();

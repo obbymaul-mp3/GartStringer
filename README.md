@@ -7,14 +7,14 @@ A supersaw trance synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N). Leads
 ## What it does
 - **Oscillators:** supersaw (seven detuned saws), hyper sync, PWM stack, roll bass, feedback, plus a sub. Six voices.
 - **Filter:** state-variable, LP12 / LP24 / band / high / vowel. Two ADSR envelopes, one LFO (pitch, filter, amp, colour, detune), glide, poly / mono / legato, hold.
-- **Step sequencer:** 16 steps of note, rest, accent and slide; rate, length, swing, gate and four directions; every factory patch has its own sequence, and your saves keep theirs. Keys write steps when it is stopped and transpose it while it runs. No drums, only notes.
+- **Step sequencer:** 128 steps (eight bars) of note, rest, accent and slide; rate, length, swing, gate and four directions. Write it with the keys or the knobs, copy / clear / repeat / rotate bars, and keep tweaking every parameter while it plays. Every factory patch has its own bar, and your saves keep your whole sequence. Keys transpose it while it runs. No drums, only notes.
 - **Trance gate:** 16 steps, 14 patterns, random patterns, rate and smoothing.
 - **Arpeggiator:** 8 patterns, rates, octaves, gate length.
 - **Effects:** drive, bit crush, ensemble chorus, glitch (stutter, reverse, tape stop, drop-out; hold REC to fire by hand), tempo-synced ping-pong echo, reverb, soft-limited master.
 - **32 factory patches** and 8 save slots.
 
 ## Controls
-K1–K4: the page's four parameters. ALGORITHM: the page's other parameters. PRESETS: patch. SELECT: tempo. EDIT / SCL / ENV / LFO / FX / ARP / SEQ / GLO: oscillator, filter, envelopes, LFO, effects, arp, sequencer and glitch pages (SEQ again: its setup; GLO again: the trance gate). PLAY: hold, or run / stop on the sequencer pages. REC held: glitch. OCT±: octave. SAVE: slots. The 27 keys play from C3.
+K1–K4: the page's four parameters. ALGORITHM: the page's other parameters. PRESETS: patch. SELECT: tempo. EDIT / SCL / ENV / LFO / FX / ARP / SEQ / GLO: oscillator, filter, envelopes, LFO, effects, arp, sequencer and glitch pages (SEQ again: its setup; GLO again: the trance gate). PLAY: hold, or run / stop on the sequencer pages (SEQ again: setup, again: bar tools). On the editing pages OCT± jumps a bar. REC held: glitch. OCT±: octave. SAVE: slots. The 27 keys play from C3.
 
 ## Build
 `sh build.sh` (device image, needs the JieLi toolchain: `tools/get_toolchain.sh`), `sh tools/build_web.sh` (browser version), `sh tools/make_site.sh OUT` (site). Pushing a `v*` tag builds a release (`release.yml`); `pages.yml` publishes the site and installer.

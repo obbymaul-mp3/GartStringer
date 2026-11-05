@@ -12,7 +12,7 @@ BASE = dict(MODE=0, DET=54, MIX=64, SUB=0, COL=60, OCT=2, CUT=80, RES=30, FENV=4
             AA=4, AD=60, AS=100, AR=50, FA=6, FD=60, FS=40, FR=50, LRATE=40, LAMT=0, LDST=0, LSHP=0, GLIDE=0, VMODE=0,
             CHOR=60, DLY=30, DTIM=2, DFB=50, REV=40, RSZ=70, GPAT=13, GRATE=1, GDEP=0, GSMO=40,
             APAT=0, ARATE=2, ARNG=1, AGATE=90, AON=0, GLP=0, GLL=0, GLT=0, CRU=0,
-            SRATE=1, SLEN=16, SSWG=0, SGATE=70, SDIR=0)
+            SRATE=1, SLEN=15, SSWG=0, SGATE=70, SDIR=0)
 # modes: 0 supersaw 1 hypersync 2 pwm 3 roll bass 4 feedback; filters: 0 lp12 1 lp24 2 band 3 high 4 vowel
 # lfo dest: 0 pitch 1 filter 2 amp 3 colour 4 detune; shapes: 0 sine 1 tri 2 square 3 s+h; voice: 0 poly 1 mono 2 legato
 # echo: 0 1/16 1 1/8 2 dotted 1/8 3 1/4 4 1/8T 5 3/16; arp: 0 up 1 down 2 updown 3 random 4 played 5 chord 6 bounce 7 rolling

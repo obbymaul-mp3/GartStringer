@@ -20,6 +20,7 @@
 #define SK_FS 44100
 #define GS_NV 6                          /* voices */
 #define GS_NPRE 32                       /* factory patches */
+#define GS_NS 128                        /* the sequencer's steps */
 
 /* the patch: every sound parameter is one byte, 0..127 unless it is a choice */
 enum {
@@ -32,7 +33,7 @@ enum {
     P_GPAT, P_GRATE, P_GDEP, P_GSMO,                        /* trance gate: pattern, rate, depth, smoothing */
     P_APAT, P_ARATE, P_ARNG, P_AGATE, P_AON,                /* arpeggio: pattern, rate, octaves, gate length, on */
     P_GLP, P_GLL, P_GLT, P_CRU,                             /* glitch: chance, length, kind, crush */
-    P_SRATE, P_SLEN, P_SSWG, P_SGATE, P_SDIR,               /* sequencer: rate, length 1..16, swing, gate length, direction */
+    P_SRATE, P_SLEN, P_SSWG, P_SGATE, P_SDIR,               /* sequencer: rate, length (steps - 1), swing, gate length, direction */
     P_N
 };
 #define GS_NMODE 5
@@ -64,7 +65,7 @@ static const uint8_t GS_DEF[P_N] = {
     60, 40, 2, 50, 40, 70,
     1, 1, 0, 40,   0, 2, 1, 90, 0,
     0, 0, 0, 0,
-    1, 16, 0, 70, 0,
+    1, 15, 0, 70, 0,
 };
 
 /* ------------------------------------------------------------------ helpers --- */
@@ -118,8 +119,8 @@ static struct {
     int32_t level;                       /* the output's level, 0..255 (the visuals) */
     uint8_t glitch;                      /* 1 while a stutter or a stop is playing (set by the effects) */
     uint8_t note_t;                      /* a note on: the visuals flash (counts down) */
-    /* the step sequencer: sixteen steps, each a note (0..36, 12 = the root) and flags (1 on, 2 accent, 4 slide) */
-    uint8_t sq_n[16], sq_f[16];
+    /* the step sequencer: a hundred and twenty-eight steps, each a note (0..36, 12 = the root) and flags (1 on, 2 accent, 4 slide) */
+    uint8_t sq_n[GS_NS], sq_f[GS_NS];
     uint8_t srun, sstep, sdirp, sslide;  /* running, the step now, the ping-pong's way, the step now holds into the next */
     int8_t snote;                        /* the note sounding, -1 none */
     uint8_t sroot;                       /* the note a step of 12 plays (the keys move it while it runs) */
@@ -642,11 +643,11 @@ static void gs_seq_start(void)
 
 static void gs_seq_step(void)
 {
-    uint32_t len = gs.p[P_SLEN] ? gs.p[P_SLEN] : 1u, d = gs.p[P_SDIR] & 3u, s;
+    uint32_t len = (uint32_t)gs.p[P_SLEN] + 1u, d = gs.p[P_SDIR] & 3u, s;
     int old = gs.snote, oldslide = gs.sslide;
     uint8_t f;
-    if (len > 16u)
-        len = 16u;
+    if (len > GS_NS)
+        len = GS_NS;
     if (gs.sstep == 255u)
         s = d == 1u ? len - 1u : 0u;
     else if (d == 1u)

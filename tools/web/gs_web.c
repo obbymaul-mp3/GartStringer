@@ -81,7 +81,7 @@ static uint32_t dev_samples, last_ui, booted;
 static uint32_t web_cpu;
 
 /* the saved slots live in this buffer; the page keeps them in localStorage (web_store_set before web_boot to restore) */
-static uint8_t web_store[1024];
+static uint8_t web_store[4096];
 static uint32_t web_store_len, web_store_gen;
 static int sk_store_read(void *dst, uint32_t n)
 {
