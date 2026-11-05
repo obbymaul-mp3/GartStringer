@@ -110,8 +110,8 @@ jobs:
           if [ "$rc" != 0 ]; then   # (the log cannot be fetched by API: the error lines go out as annotations)
             grep -iE 'error|undefined|overflow|region|exceed|POOL|fatal' build.log | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
             tail -8 build.log | while IFS= read -r l; do echo "::warning::${l:0:400}"; done
-            for a in 20031a0 20034b4 20039ee; do   # where a ROM reference sits: the code around it
-              echo "=== $a"; grep -n -B14 -A3 "^ *$a:" build/gartstringer.dis | cut -c1-150 || true
+            for a in 20039ee; do   # where a ROM reference sits: the code around it
+              echo "=== $a"; awk -v a="$a:" '/^[0-9a-f]+ <.*>:$/ {lab=$0} $1==a {print lab}' build/gartstringer.dis; grep -n -B45 -A3 "^ *$a:" build/gartstringer.dis | cut -c1-120 || true
             done
           fi
           grep -E "^size:" build.log | tail -1 | while IFS= read -r l; do echo "::notice::${l:0:400}"; done

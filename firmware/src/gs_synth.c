@@ -252,8 +252,8 @@ static inline void gs_svf(int32_t x, int32_t *ic, int32_t a1, int32_t a2, int32_
     int32_t v3 = x - ic[1];
     int32_t v1 = (int32_t)(((int64_t)a1 * ic[0] + (int64_t)a2 * v3) >> 16);
     int32_t v2 = ic[1] + (int32_t)(((int64_t)a2 * ic[0] + (int64_t)a3 * v3) >> 16);
-    ic[0] = sk_clampi(2 * v1 - ic[0], -(1 << 22), 1 << 22);
-    ic[1] = sk_clampi(2 * v2 - ic[1], -(1 << 22), 1 << 22);
+    ic[0] = sk_clampi(2 * v1 - ic[0], -(1 << 23), 1 << 23);
+    ic[1] = sk_clampi(2 * v2 - ic[1], -(1 << 23), 1 << 23);
     *lo = v2;
     *bd = v1;
 }
