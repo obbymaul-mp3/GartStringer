@@ -1,8 +1,8 @@
 # GartStringer
 
-A supersaw trance synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N). Leads that go from euphoric to haunting, rolling trance bass, a gate, an arpeggiator and a glitch engine, with an orange, brushed-silver and black '90s rave look. **There is no percussion at all**: it is built to play beside your own drums.
+A supersaw trance synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N). Leads that go from euphoric to haunting, rolling trance bass, a gate, an arpeggiator and a glitch engine, with an orange, brushed-silver and black '90s rave look, and a 3D screen: perspective floor, towers, turning shapes for every effect, and a memory-card save page. **There is no percussion at all**: it is built to play beside your own drums.
 
-![Home](docs/images/home.png) ![Glitch](docs/images/glitch.png)
+![Home](docs/images/home.png) ![Effects](docs/images/edit.png) ![Save](docs/images/save.png) ![Glitch](docs/images/glitch.png)
 
 ## What it does
 - **Oscillators:** supersaw (seven detuned saws), hyper sync, PWM stack, roll bass, feedback, plus a sub. Six voices.

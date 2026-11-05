@@ -456,19 +456,27 @@ static void ui_screw(int x, int y)
     fb_pset(x + 2, y + 2, C_S1);
 }
 
+#include "gs_3d.c"
+
 static int ui_lv(uint32_t idx) { return gs.p[idx]; }
 
-/* the backdrop of the window: a dark sunset glow rising from its bottom, a grid like a screen */
-static void vz_back(void)
+/* the backdrop of the window: a warm sky down to a horizon, a perspective floor of lines that run toward you at the tempo */
+static void vz_back(uint32_t now)
 {
-    int i;
-    fb_rect(VX, VY, VW, VH, C_BG);
-    for (i = 0; i < 6; i++)                                                  /* the bands warm toward the bottom */
-        fb_rect(VX, VY + VH - 6 * (6 - i), VW, 6, (uint8_t)(C_B0 + i));
-    for (i = VX + 20; i < VX + VW; i += 28)
-        fb_vline(i, VY, VH, C_GRID0);
-    for (i = VY + 14; i < VY + VH; i += 18)
-        fb_hline(VX, i, VW, C_GRID0);
+    int i, hy = VY + 30, cx = VX + VW / 2, fh = VY + VH - hy;
+    uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
+    fb_rect(VX, VY, VW, VH, C_K1);
+    for (i = 0; i < 6; i++)                                                  /* the sky warms toward the horizon */
+        fb_rect(VX, hy - 5 * (6 - i), VW, 5, (uint8_t)(C_B0 + i));
+    fb_rect(VX, hy, VW, fh, C_BG);
+    fb_hline(VX, hy, VW, C_O3);
+    for (i = -8; i <= 8; i++)
+        fb_line(cx, hy, cx + i * 34, VY + VH, i == 0 ? C_GRID1 : C_GRID0);
+    for (i = 0; i < 8; i++) {
+        uint32_t u = ((uint32_t)i * 256u + scroll) & 2047u;
+        int y = hy + 1 + (int)((uint32_t)fh * ((u * u) >> 11) >> 11);
+        fb_hline(VX, y, VW, y > hy + fh / 2 ? C_O1 : C_GRID0);
+    }
 }
 
 static uint32_t ui_hash(uint32_t x)
@@ -488,68 +496,35 @@ static void vz_dot(int x, int y, uint8_t core, uint8_t glow)
     fb_pset(x, y - 1, glow);
 }
 
-static int vz_saw(uint32_t ph) { return (int)(ph >> 16) - 32768; }
-
-/* the oscillator's picture: three cycles, built the same way the voice builds its sound */
-static void vz_osc(uint32_t now)
+/* the oscillator as towers on the floor: a tower to a saw (or pulse, or sine) of the patch's oscillator, each rising at its
+ * own rate so that the detune is seen as the towers drifting in and out of step */
+static int vz_tower_h(int mode, int j, uint32_t now, int det, int col, int fbk)
 {
-    int x, prev = 0, have = 0, cy = VY + 38, amp = 26;
-    int det = ui_lv(P_DET), mix = ui_lv(P_MIX), col = ui_lv(P_COL), mode = ui_lv(P_MODE);
-    int fbv = 0;
-    for (x = 0; x < VW; x++) {
-        uint32_t base = (uint32_t)x * 58000000u;                                 /* ~3 cycles across */
-        int64_t s = 0;
-        int k, y;
-        switch (mode) {
-        case 0:
-            for (k = 0; k < 7; k++) {
-                uint32_t off = (uint32_t)((int64_t)now * GS_DT[k] * (det + 8) * 8);
-                uint32_t ph = base + (uint32_t)((int64_t)base * GS_DT[k] * det >> 23) + off;
-                s += (int64_t)vz_saw(ph) * (k == 3 ? 26000 - mix * 130 : 1800 + mix * 50) >> 15;
-            }
-            s = s * 3 / 4;
-            break;
-        case 1:
-            for (k = 0; k < 3; k++) {
-                uint32_t ph = base + (uint32_t)(k * 70000000) + (uint32_t)((int64_t)now * GS_DT[k * 2 + 1] * (det + 8) * 8);
-                uint32_t m = ph, r = (uint32_t)(65536 + col * 2048);
-                uint32_t slave = (uint32_t)(((uint64_t)(m & 0xFFFFFFFFu) * r) >> 16);
-                s += vz_saw(slave) / 2;
-            }
-            break;
-        case 2: {
-            uint32_t thr = 214748364u + (uint32_t)col * 14500000u;
-            for (k = 0; k < 3; k++) {
-                uint32_t ph = base + (uint32_t)(k * 90000000) + (uint32_t)((int64_t)now * GS_DT[k * 2 + 1] * (det + 8) * 8);
-                s += (ph < thr ? 16000 : -16000);
-            }
-            break;
-        }
-        case 3: {
-            uint32_t ph = base;
-            int q = (ph << 1) < 0x80000000u ? 15000 : -15000;
-            s = ((int64_t)vz_saw(ph) * (127 - col) + (int64_t)q * col) >> 7;
-            s += vz_saw(base + (uint32_t)((int64_t)now * (det + 8) * 400000)) * mix / 400;
-            break;
-        }
-        default: {
-            uint32_t ph = base + (uint32_t)now * 900000u;
-            int o = SK_SIN[((ph + (uint32_t)(fbv * (col << 9))) >> 22) & 1023u];
-            fbv = o;
-            s = (int64_t)o * 3 / 2;
-            break;
-        }
-        }
-        y = cy - (int)(s * amp / 32768);
-        y = ui_clamp(y, VY + 3, VY + VH - 4);
-        if (have) {
-            int lo = prev < y ? prev : y, hi = prev < y ? y : prev;
-            for (k = lo; k <= hi; k++)
-                vz_dot(VX + x, k, C_O6, C_O3);
-        } else
-            vz_dot(VX + x, y, C_O6, C_O3);
-        prev = y;
-        have = 1;
+    uint32_t r = 1300u + (uint32_t)((j - 3) * det * 2 + 3 * det * 2) / 2u;
+    uint32_t ph = (now * r / 1000u) & 1023u;
+    int h = 0;
+    switch (mode) {
+    case 0: h = (int)(ph * 54u / 1024u); break;
+    case 1: h = (int)(((j & 1) ? ph * (uint32_t)(2 + col / 32) : ph) & 1023u) * 54 / 1024; break;
+    case 2: h = (int)ph < 100 + col * 6 ? 54 : 12; break;
+    case 3: h = j == 1 ? ((int)ph < 512 ? 54 : 8) : (int)(ph * 54u / 1024u); break;
+    default: h = 30 + SK_SIN[(ph + (uint32_t)(SK_SIN[(ph * 2u) & 1023u] * fbk / 32768)) & 1023u] * 24 / 32768; break;
+    }
+    return h < 6 ? 6 : h;
+}
+
+static void vz_towers(uint32_t now)
+{
+    static const uint8_t NT[5] = {7, 6, 3, 3, 5};
+    int mode = gs.p[P_MODE] % GS_NMODE, n = NT[mode], j, det = ui_lv(P_DET), mix = ui_lv(P_MIX), col = ui_lv(P_COL);
+    int sp = 190 / n, wpx = n > 5 ? 13 : (n > 3 ? 18 : 28), bias = gs.level > 14 ? 2 : 0;
+    g3_cam(VX + VW / 2, VY + 52, 250, 250, 40);
+    for (j = 0; j < n; j++) {
+        int h = vz_tower_h(mode, j, now, det, col, ui_lv(P_COL)), w = wpx;
+        if (mode == 0 && j == 3)
+            w = wpx * (70 + mix) / 120;
+        g3_draw(&G3_CUBE, (j - (n - 1) / 2) * sp + (n & 1 ? 0 : sp / 2), h / 2, 0, w / 4 + 1, h / 4 + 1, w / 4 + 1,
+                0, (int)(now >> 4) + j * 90, 0, C_O0, 8, bias, mode == 0 && j == 3 ? C_HOT : C_O6);
     }
 }
 
@@ -682,126 +657,107 @@ static void vz_lfo(uint32_t now)
     fb_hline(VX, cy, VW, C_GRID1);
 }
 
-/* FX: four small pictures, one above each plate */
+/* FX: four small scenes, one above each plate; each is a shape that turns, and what it does shows its setting */
 static void vz_fx(uint32_t now)
 {
-    int i, p;
+    int i, k;
     for (i = 0; i < 4; i++) {
-        int x0 = 6 + i * 58, y0 = VY + 6, w = 54, h = VH - 12, x, cy = y0 + h / 2;
+        int x0 = 6 + i * 58, y0 = VY + 6, w = 54, h = VH - 12;
         fb_rect(x0, y0, w, h, C_K1);
+        fb_rect(x0 + 1, y0 + h - 22, w - 2, 21, C_B1);
         fb_frame(x0, y0, w, h, C_S1);
-        if (gs.p[P_AON] && 0)
-            continue;
+        fb_clip(x0 + 1, y0 + 1, x0 + w - 1, y0 + h - 1);
+        g3_cam(x0 + w / 2, y0 + h / 2 + 8, 170, 170, 150);
         if (ui.page == PG_FX) {
             switch (i) {
-            case 0: {                                                          /* the ensemble: three lines that sway */
-                int mix = ui_lv(P_CHOR);
-                for (p = 0; p < 3; p++)
-                    for (x = 2; x < w - 2; x++) {
-                        int v = SK_SIN[((((uint32_t)x * 260000000u) + (uint32_t)p * 1400000000u + now * (2000000u + (uint32_t)p * 600000u)) >> 22) & 1023u];
-                        fb_pset(x0 + x, cy + (p - 1) * 14 + v * (3 + mix / 14) / 32768, p == 1 ? C_O6 : C_O4);
-                    }
+            case 0: {                                                          /* the ensemble: three that orbit, wider with the mix */
+                int rad = 6 + ui_lv(P_CHOR) * 18 / 127, ox[3], oz[3], o[3] = {0, 1, 2}, t;
+                for (k = 0; k < 3; k++) {
+                    int a = (int)(now >> 3) + k * 341;
+                    ox[k] = g3_cos(a) * rad / 32768;
+                    oz[k] = g3_sin(a) * rad / 32768;
+                }
+                if (oz[o[0]] < oz[o[1]]) { t = o[0]; o[0] = o[1]; o[1] = t; }
+                if (oz[o[1]] < oz[o[2]]) { t = o[1]; o[1] = o[2]; o[2] = t; }
+                if (oz[o[0]] < oz[o[1]]) { t = o[0]; o[0] = o[1]; o[1] = t; }
+                for (k = 0; k < 3; k++)
+                    g3_draw(&G3_OCT, ox[o[k]], 0, oz[o[k]], 5, 6, 5, 0, (int)(now >> 3) + o[k] * 200, 0, C_O0, 8, 0, C_O6);
                 break;
             }
-            case 1: {                                                          /* the echo: bars at the echo's spacing, falling away */
+            case 1: {                                                          /* the echo: copies falling away down the floor */
                 static const uint8_t SP[6] = {8, 14, 20, 26, 11, 17};
-                int lvl = 8 + ui_lv(P_DLY) * (h - 16) / 127, fbk = ui_lv(P_DFB), xx = x0 + 6, sp = SP[gs.p[P_DTIM] % 6u] / 2 + 3;
-                for (p = 0; p < 6 && xx < x0 + w - 3; p++) {
-                    int hh = lvl * (100 - p * (130 - fbk) / 2) / 100;
-                    if (hh < 2)
-                        break;
-                    fb_rect(xx, y0 + h - 3 - hh, 4, hh, p == 0 ? C_O6 : C_O4);
-                    xx += sp;
+                int n = 2 + ui_lv(P_DFB) * 4 / 127, s0 = 3 + ui_lv(P_DLY) * 4 / 127, act = (int)((now / (uint32_t)(SP[gs.p[P_DTIM] % 6u] * 22u)) % (uint32_t)n);
+                for (k = n - 1; k >= 0; k--) {
+                    int s = s0 * (n + 1 - k) / (n + 1);
+                    g3_draw(&G3_CUBE, 0, s * 2, -30 + k * 60 / n, s, s, s, 0, (int)(now >> 4) + k * 60, 0, C_O0, 8, k == act ? 3 : -1, k == act ? C_HOT : C_O5);
                 }
                 break;
             }
-            case 2: {                                                          /* the feedback: how fast the echoes fade */
-                int fbk = ui_lv(P_DFB), prev = -1;
-                for (x = 2; x < w - 2; x++) {
-                    int y = y0 + 6 + (x * (160 - fbk)) / 90;
-                    y = y > y0 + h - 4 ? y0 + h - 4 : y;
-                    if (prev >= 0 && y != prev)
-                        fb_vline(x0 + x, prev < y ? prev : y, (y > prev ? y - prev : prev - y) + 1, C_O6);
-                    else
-                        fb_pset(x0 + x, y, C_O6);
-                    prev = y;
+            case 2: {                                                          /* the feedback: a stack that shrinks by how much comes back */
+                int fbk = ui_lv(P_DFB), r = 115 + fbk * 115 / 127, s = 7 * 16, oy = -26;
+                for (k = 0; k < 5; k++) {
+                    int sc = s / 16 < 1 ? 1 : s / 16;
+                    g3_draw(&G3_CUBE, 0, oy + sc * 2, 0, sc, sc, sc, 0, (int)(now >> 4) * (k + 1) + k * 90, 0, C_O0, 8, 0, C_O6);
+                    oy += sc * 4;
+                    s = s * r / 256;
                 }
                 break;
             }
-            default: {                                                         /* the reverb: grains thinning out over its time */
-                int len = 14 + ui_lv(P_RSZ) * (w - 18) / 127, mixr = ui_lv(P_REV);
-                for (x = 0; x < len; x++) {
-                    int amp = (h - 10) * (len - x) * (20 + mixr) / (len * 150 + 1);
-                    uint32_t hh = ui_hash((uint32_t)x * 7u + (now >> 6) * 3u);
-                    int y = y0 + h / 2 + ((int)(hh % (uint32_t)(amp * 2 + 1)) - amp);
-                    fb_pset(x0 + 3 + x, y, (hh & 8u) ? C_O5 : C_O3);
+            default: {                                                         /* the reverb: shells that grow and thin away */
+                int n = 2 + ui_lv(P_REV) * 3 / 127, unit = 3 + ui_lv(P_RSZ) * 5 / 127;
+                for (k = 0; k < n; k++) {
+                    int g = (int)((((uint32_t)k * 256u + (now >> 2)) % ((uint32_t)n * 256u)) * 256u / ((uint32_t)n * 256u));   /* 0..255 */
+                    int s = 1 + g * unit / 120;
+                    g3_draw(&G3_CUBE, 0, 0, 0, s, s, s, (int)(now >> 5), -(int)(now >> 4), 0, 255, 0, 0, (uint8_t)(C_O7 - g * 5 / 256));
                 }
                 break;
             }
             }
         } else {
             switch (i) {
-            case 0: {                                                          /* the room's length */
-                int len = 14 + ui_lv(P_RSZ) * (w - 18) / 127;
-                for (x = 0; x < len; x++) {
-                    int amp = (h - 10) * (len - x) / (len + 1) / 2 + 1;
-                    uint32_t hh = ui_hash((uint32_t)x * 5u + (now >> 6) * 3u);
-                    fb_pset(x0 + 3 + x, cy + ((int)(hh % (uint32_t)(amp * 2 + 1)) - amp), C_O5);
-                }
+            case 0: {                                                          /* the room: a box as long as the size, a ball between its ends */
+                int sz = 4 + ui_lv(P_RSZ) * 10 / 127, lim = sz * 2 - 5, bz = g3_sin((int)(now >> 2)) * lim / 32768;
+                g3_draw(&G3_CUBE, 0, 0, 0, 8, 5, sz, 0, 0, 0, 255, 0, 0, C_S5);
+                g3_draw(&G3_OCT, 0, 0, bz, 2, 2, 2, (int)(now >> 3), (int)(now >> 3), 0, C_O0, 8, 2, C_HOT);
                 break;
             }
-            case 1: {                                                          /* the crusher: a sine in steps */
-                int st = 1 + ui_lv(P_CRU) / 18, sh = ui_lv(P_CRU) / 12, hold = 0, y = cy;
-                for (x = 2; x < w - 2; x++) {
-                    if (!hold) {
-                        int v = SK_SIN[((uint32_t)x * 15000000u >> 22) & 1023u] * 20 / 32768;
-                        v = (v >> (sh / 3)) << (sh / 3);
-                        y = cy - v;
-                        hold = st;
-                    }
-                    hold--;
-                    fb_pset(x0 + x, y, C_O6);
-                    fb_pset(x0 + x, y + 1, C_O3);
-                }
+            case 1: {                                                          /* the crusher: it turns in steps, in fewer shades */
+                int cr = ui_lv(P_CRU), steps = 3 + (127 - cr) * 20 / 127, a = (int)(now >> 3) & 1023, rl = 2 + (127 - cr) * 6 / 127;
+                a = a * steps / 1024 * 1024 / steps;
+                g3_draw(&G3_CUBE, 0, 0, 0, 8, 8, 8, a / 2, a, 0, C_O0, rl, 0, C_O6);
                 break;
             }
-            case 2: {                                                          /* the drive: the curve's knee */
-                int drv = 256 + ui_lv(P_DRV) * 12;
-                for (x = 2; x < w - 2; x++) {
-                    int in = (x - w / 2) * 1400, out = gs_sat(in, drv);
-                    fb_pset(x0 + x, cy - out * (h / 2 - 4) / 40000, C_O6);
-                }
-                fb_hline(x0 + 2, cy, w - 4, C_GRID1);
+            case 2: {                                                          /* the drive: a spike that grows, hotter, and shakes */
+                int drv = ui_lv(P_DRV), hot = drv > 80;
+                int jx = (int)(ui_hash(now >> 5) % (uint32_t)(drv / 40 + 1));
+                g3_draw(&G3_PYR, jx, 6 + drv * 14 / 127, 0, 8, 6 + drv * 14 / 127, 8, 0, (int)(now >> 3), 0,
+                        hot ? C_R0 : C_O0, hot ? 5 : 8, 1, hot ? C_HOT : C_O6);
                 break;
             }
-            default: {                                                         /* the glide: a slide from one note to the next */
-                int gl_ = ui_lv(P_GLIDE);
-                for (x = 2; x < w - 2; x++) {
-                    int t = x - w / 4, y;
-                    if (t < 0)
-                        y = y0 + h - 10;
-                    else {
-                        int span = 2 + (127 - gl_) * (w / 2) / 127 / 2;
-                        y = t >= span ? y0 + 10 : y0 + h - 10 - (h - 20) * t / span;
-                    }
-                    fb_pset(x0 + x, y, C_O6);
-                    fb_pset(x0 + x, y + 1, C_O3);
+            default: {                                                         /* the glide: a slide from one note to the next, ghosts behind it */
+                uint32_t dur = 120u + (uint32_t)ui_lv(P_GLIDE) * 9u, ph = now % (dur + 600u);
+                int f = ph < dur ? (int)(ph * 1000u / dur) : 1000;
+                for (k = 3; k >= 0; k--) {
+                    int g = f - k * 90;
+                    g = g < 0 ? 0 : g;
+                    g3_draw(&G3_OCT, -18 + 36 * g / 1000, 0, -22 + 44 * g / 1000, 5, 5, 5, 0, (int)(now >> 3), 0, C_O0, 8, k ? -2 : 2, k ? C_O3 : C_HOT);
                 }
                 break;
             }
             }
         }
+        fb_clip(VX, VY, VX + VW, VY + VH);
     }
 }
 
-/* the arpeggio: the sequence its pattern makes of the notes held (a minor chord to show while none are), a bar a step */
+/* the arpeggio: the sequence its pattern makes of the notes held (a minor chord to show while none are), a bar on the floor a step */
 static void vz_arp(uint32_t now)
 {
     static const int8_t DEMO[3] = {0, 3, 7};
     int n = gs.nh ? (int)gs.nh : 3, i, nr = gs.p[P_ARNG] ? gs.p[P_ARNG] : 1, pat = gs.p[P_APAT], total = n * nr, steps = 16;
     uint8_t sorted[8];
-    int bot = VY + VH - 8, base = 100;
-    (void)now;
+    int base = 100;
+    g3_cam(VX + VW / 2, VY + 62, 260, 260, 60);
     for (i = 0; i < n; i++)
         sorted[i] = gs.nh ? gs.hn[i] : (uint8_t)(60 + DEMO[i]);
     for (i = 1; i < n; i++) {
@@ -827,64 +783,66 @@ static void vz_arp(uint32_t now)
         else if (pat == 7)
             note = sorted[0] + GS_ROLL[i & 7];
         else if (pat == 5)
-            note = sorted[(i % n)] ;
+            note = sorted[(i % n)];
         else
             note = sorted[idx % n] + 12 * (idx / n);
         {
-            int x = VX + 6 + i * 13, h = 4 + (note - base + 40) * 2;
-            int on = gs.p[P_AON], cur = i == (gs.astep ? (int)((gs.astep - 1) & 15) : 0);
-            h = ui_clamp(h, 6, VH - 18);
-            fb_rect(x, bot - h, 11, h, on ? (cur ? C_HOT : C_O3) : C_K3);
-            fb_hline(x, bot - h, 11, on ? C_O6 : C_S2);
+            int h = 8 + (note - base + 40) * 2, on = gs.p[P_AON], cur = i == (gs.astep ? (int)((gs.astep - 1) & 15) : 0);
+            h = ui_clamp(h, 8, VH - 30);
+            g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, on ? C_O0 : C_S0, on ? 8 : 4, cur ? 5 : 0, on ? (cur ? C_HOT : C_O6) : C_S3);
         }
     }
 }
 
-/* the gate's pattern, big, with its smoothing as the slope of the edges */
+/* the gate's pattern, big: sixteen slabs on the floor, the open ones tall, the closed ones as low as the depth leaves them */
 static void vz_gate(uint32_t now)
 {
-    int i, bot = VY + VH - 6, top = VY + 10, sm = 1 + (int)gs.p[P_GSMO] * 8 / 127, depth = ui_lv(P_GDEP);
+    int i, depth = ui_lv(P_GDEP);
     const char *pat = GS_GT_STR[gs.p[P_GPAT] % GS_NPAT];
-    int prev = bot;
     (void)now;
+    g3_cam(VX + VW / 2, VY + 62, 260, 260, 60);
     for (i = 0; i < 16; i++) {
         char c = pat[i];
-        int on = c == '?' ? (int)((gs.rmask >> i) & 1u) : c == 'x', x = VX + 4 + i * 13;
-        int lo = bot - (bot - top) * (127 - depth) / 127, y = on ? top : lo, k, cur = i == (gs.gstep & 15);
-        for (k = 0; k < 13; k++) {
-            int yy = y;
-            if (k < sm && prev != y)
-                yy = prev + (y - prev) * k / sm;
-            fb_vline(x + k, yy, bot - yy, cur ? ((k & 1) ? C_O5 : C_O6) : ((k & 1) ? C_O1 : C_O2));
-            fb_pset(x + k, yy, cur ? C_HOT : C_O6);
-        }
-        prev = y;
+        int on = c == '?' ? (int)((gs.rmask >> i) & 1u) : c == 'x', cur = i == (gs.gstep & 15);
+        int h = on ? 40 : 6 + 34 * (127 - depth) / 127;
+        g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, cur ? 5 : 0, cur ? C_HOT : (on ? C_O6 : C_O3));
     }
 }
 
-/* the glitch: a loop that spins, a pie for its length, a lamp when it plays */
+/* the glitch: a cube of eight shards that comes apart as the kind says, beside what the kind does to a wave */
 static void vz_glitch(uint32_t now)
 {
-    int cx = VX + 56, cy = VY + VH / 2, r = 32, a, i, kind = ui_lv(P_GLT), len = ui_lv(P_GLL);
+    int cx = VX + 56, cy = VY + VH / 2 + 6, i, kind = ui_lv(P_GLT), len = ui_lv(P_GLL), ex = 0, shown = 8, spin;
     static const uint8_t LENS[5] = {16, 8, 32, 4, 11};
-    int seg = LENS[len % 5];
-    uint32_t spin = gl.on ? now / 6u : now / 40u;
-    for (a = 0; a < 360; a += 4) {
-        int ex = cx + (SK_SIN[((uint32_t)((a + 90) * 1024 / 360)) & 1023u] * r) / 32768, ey = cy - (SK_SIN[((uint32_t)(a * 1024 / 360)) & 1023u] * r) / 32768;
-        int on = (((a * seg / 360) + (int)(spin / 30u)) & 1) != 0;
-        fb_pset(ex, ey, gl.on ? (on ? C_HOT : C_R3) : C_S3);
-        fb_pset(cx + (ex - cx) * 3 / 4, cy + (ey - cy) * 3 / 4, gl.on ? C_R2 : C_S1);
+    (void)len;
+    spin = gl.on ? (int)(now >> 2) : (int)(now >> 4);
+    if (gl.on) {
+        if (kind == 0)
+            ex = (int)((now / 110u) & 3u) * 5;
+        else if (kind == 1) {
+            ex = 14 - (int)((now / 22u) % 15u);
+            spin = -spin;
+        } else if (kind == 2) {
+            int t = (int)((now % 1500u) * 1024u / 1500u);
+            spin = (t * (2048 - t)) >> 11;
+            ex = 3 + t / 90;
+        } else
+            shown = 8 - (int)((now / 110u) % 9u);
     }
-    for (i = 0; i < 12; i++) {                                                  /* the arm */
-        uint32_t ang = (spin * 5u) & 1023u;
-        fb_pset(cx + (SK_SIN[(ang + 256u) & 1023u] * i * 2) / 32768, cy - (SK_SIN[ang] * i * 2) / 32768, gl.on ? C_HOT : C_O4);
+    g3_cam(cx, cy, 190, 190, 110);
+    for (i = 0; i < 8; i++) {
+        int sx = (i & 1) ? 1 : -1, sy = (i & 2) ? 1 : -1, sz = (i & 4) ? 1 : -1;
+        if (i >= shown)
+            continue;
+        g3_draw(&G3_CUBE, sx * (9 + ex), sy * (9 + ex), sz * (9 + ex), 4, 4, 4, spin / 2, spin, 0, gl.on ? C_R0 : C_S0, gl.on ? 5 : 7, 1,
+                gl.on ? C_HOT : C_S5);
     }
-    fb_disc(cx, cy, 3, gl.on ? C_R4 : C_K3);
+    (void)LENS;
     /* the kind, drawn as what it does to a wave */
     {
-        int x, y0 = cy;
+        int x, y0 = cy - 6;
         for (x = 0; x < 112; x++) {
-            int v = SK_SIN[((uint32_t)x * 6u * 1024u / 112u * 3u) & 1023u] * 22 / 32768, y = y0;
+            int v = SK_SIN[((uint32_t)x * 6u * 1024u / 112u * 3u) & 1023u] * 22 / 32768, y;
             if (kind == 0) {                                                     /* stutter: the same slice, again */
                 int xs = x % 28;
                 v = SK_SIN[((uint32_t)xs * 24u) & 1023u] * 22 / 32768;
@@ -905,19 +863,58 @@ static void vz_glitch(uint32_t now)
     }
 }
 
+/* the save page: a memory card. Eight slots in two rows, each a shape that turns: a lit solid for a patch kept, a bare frame for
+ * a free slot; the chosen one is bigger, quicker and bracketed, and the strip under them says what it holds */
 static void vz_save(uint32_t now)
 {
-    int i;
-    (void)now;
+    int i, bx = VX + 3, by = VY + 2, k;
+    fb_rect(bx, by, 216, 82, C_S2);
+    for (k = 0; k < 82; k += 2)
+        fb_hline(bx, by + k, 216, C_S3);
+    fb_frame(bx, by, 216, 82, C_S5);
+    for (k = 0; k < 8; k++)                                                    /* the cut corner */
+        fb_hline(bx + 216 - 8 + k, by + k, 8 - k, C_K1);
+    fb_line(bx + 208, by, bx + 215, by + 7, C_S6);
+    for (k = 0; k < 8; k++)                                                    /* the contacts */
+        fb_rect(bx + 40 + k * 17, by + 76, 11, 5, C_O6);
+    fb_rect(bx + 5, by + 5, 206, 58, C_K1);
+    fb_frame(bx + 5, by + 5, 206, 58, C_S0);
     for (i = 0; i < SV_N; i++) {
-        int x = VX + 6 + (i & 3) * 54, y = VY + 8 + (i >> 2) * 36, full = sv.slot[i][0] != 0, sel = i == ui.slot;
-        char b[4];
-        fb_rect(x, y, 48, 30, sel ? C_O3 : C_K2);
-        fb_frame(x, y, 48, 30, sel ? C_HOT : C_S1);
+        int x = bx + 8 + (i & 3) * 51, y = by + 8 + (i >> 2) * 28, full = sv.slot[i][0] != 0, sel = i == ui.slot;
+        char b[2];
+        fb_rect(x, y, 48, 26, sel ? C_O1 : C_K2);
+        fb_frame(x, y, 48, 26, sel ? C_HOT : C_S0);
+        fb_clip(x + 1, y + 1, x + 47, y + 25);
+        g3_cam(x + 14, y + 14, 150, 150, 120);
+        {
+            int s = sel ? 6 : 4, spin = (int)(now >> (sel ? 3 : 5)) + i * 70, bob = sel ? g3_sin((int)(now >> 2)) * 3 / 32768 : 0;
+            if (full)
+                g3_draw(&G3_ICO, 0, bob, 0, s, s, s, spin / 3, spin, 0, C_O0, 8, sel ? 2 : 0, sel ? C_HOT : C_O6);
+            else
+                g3_draw(&G3_CUBE, 0, bob, 0, s, s, s, spin / 3, spin, 0, 255, 0, 0, sel ? C_S6 : C_S3);
+        }
+        fb_clip(VX, VY, VX + VW, VY + VH);
         b[0] = (char)('1' + i);
         b[1] = 0;
-        fb_text(x + 5, y + 4, b, sel ? C_BG : C_INK);
-        fb_text(x + 5, y + 16, full ? "SAVED" : "EMPTY", sel ? C_BG : (full ? C_O5 : C_INK2));
+        fb_text(x + 31, y + 8, b, sel ? C_HOT : (full ? C_O6 : C_INK2));
+        if (sel) {                                                             /* brackets */
+            fb_hline(x - 2, y - 2, 6, C_HOT); fb_vline(x - 2, y - 2, 6, C_HOT);
+            fb_hline(x + 44, y + 27, 6, C_HOT); fb_vline(x + 49, y + 22, 6, C_HOT);
+        }
+    }
+    {
+        const uint8_t *d = sv.slot[ui.slot];
+        char b[40];
+        int n = 0;
+        const char *nm = d[0] ? GS_PRE[d[1] % GS_NPRE].name : "FREE";
+        b[n++] = (char)('1' + ui.slot);
+        b[n++] = ' ';
+        while (*nm && n < 38)
+            b[n++] = *nm++;
+        b[n] = 0;
+        fb_rect(bx + 5, by + 65, 206, 12, C_K1);
+        fb_text(bx + 9, by + 66, "MEMORY CARD", C_S4);
+        fb_text_r(bx + 207, by + 66, b, d[0] ? C_O6 : C_INK2);
     }
 }
 
@@ -1040,9 +1037,12 @@ static void ui_draw(uint32_t now)
                 fb_hline(0, y, 240, C_K1);
             for (i = 0; i < 7u; i++)
                 fb_hline(10, 96 + (int)i * 4, w, (uint8_t)(C_O1 + i));
+            g3_cam(120, 200, 230, 230, 130);
+            g3_draw(&G3_ICO, 0, 0, 0, 7, 7, 7, a / 5, a / 3, 0, C_O0, 8, 1, C_O6);
+            g3_draw(&G3_CUBE, 0, 0, 0, 11, 11, 11, a / 7, -a / 4, 0, 255, 0, 0, C_S3);
             fb_text2_c(120, 70, "GARTSTRINGER", a > 700 ? C_O6 : C_O3, 1);
             if (a > 1200) {
-                fb_text_c(120, 130, "SUPERSAW LEADS AND BASS FOR THE FM-1", C_S4);
+                fb_text_c(120, 130, "SUPERSAW TRANCE FOR THE FM-1", C_S4);
                 fb_text_c(120, 148, "NO DRUMS", C_R3);
             }
             ui_theme(0);
@@ -1056,12 +1056,12 @@ static void ui_draw(uint32_t now)
     /* the window: a silver bezel round a dark glass */
     ui_metal(6, 27, 228, 92);
     fb_rect(VX - 1, VY - 1, VW + 2, VH + 2, C_S0);
-    vz_back();
+    vz_back(now);
     fb_clip(VX, VY, VX + VW, VY + VH);
     switch (ui.page) {
     case PG_HOME:
     case PG_OSC:
-        vz_osc(now);
+        vz_towers(now);
         vz_gate_strip(VY + VH - 14, 8);
         break;
     case PG_FLT:
@@ -1097,7 +1097,7 @@ static void ui_draw(uint32_t now)
     ui_screw(10, 110);
     ui_screw(227, 110);
     /* the page's name in the window's corner, the level at its right */
-    if (ui.page != PG_FX && ui.page != PG_FX2)
+    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE)
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
     if (ui.page == PG_HOME || ui.page == PG_OSC)
         fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
