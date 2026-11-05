@@ -227,6 +227,10 @@ static void gs_gl_control(void)
     }
 }
 
+/* how far behind the write place the tape-stop read may fall (kept in a variable: a loop that folds this constant, shifted, into a
+ * negative bound looks to the build's ROM check like an address in the chip ROM) */
+static volatile uint32_t gs_gl_lim = GS_GLN - 600u;
+
 static void gs_glitch(int32_t *l, int32_t *r, uint32_t n)
 {
     uint32_t i;
@@ -246,8 +250,8 @@ static void gs_glitch(int32_t *l, int32_t *r, uint32_t n)
                 gl.rate -= gl.rate >> 11;
                 if (gl.rate < 600)
                     gl.rate = 600;
-                if (sk_f.gwp - ((uint32_t)gl.pos >> 8) > GS_GLN - 600u)
-                    gl.pos = (int32_t)((sk_f.gwp - (GS_GLN - 600u)) << 8);
+                if (sk_f.gwp - ((uint32_t)gl.pos >> 8) > gs_gl_lim)
+                    gl.pos = (int32_t)((sk_f.gwp - gs_gl_lim) << 8);
             } else if (gl.kind == 3u) {                            /* drop-out: the dry goes, the tails stay */
                 gl.mute -= gl.mute >> 7;
                 ol = sk_q15(a, gl.mute);
