@@ -1,0 +1,170 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 GartStringer contributors
+     GartStringer's first page: what it is, how to play it, and its installer (installer.js). The installer checks the package
+     here and writes it with the update protocol of fm1ota.js. tools/make_site.sh puts the site together. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GartStringer: a supersaw trance synth for the M-VAVE FM-1</title>
+<meta name="description" content="GartStringer turns the M-VAVE FM-1 into a supersaw trance lead and bass synth: 32 patches, trance gate, arpeggiator, glitch effects and a 90s rave look. No drums, so it plays beside yours. Free and open source.">
+<meta name="theme-color" content="#0a0806">
+<meta property="og:title" content="GartStringer: a supersaw trance synth for the M-VAVE FM-1">
+<meta property="og:description" content="Supersaw leads, rolling trance bass, a gate, an arpeggiator and glitch. No drums. Free and open source.">
+<meta property="og:image" content="images/home.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/Sora.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="container site-header__row">
+    <a class="brand" href="./"><i aria-hidden="true"></i>GartStringer</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a href="#sound">The sound</a>
+      <a href="#controls">Controls</a>
+      <a href="#glitch">Glitch</a>
+      <a href="play/">Play</a>
+      <a href="#install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="install" aria-labelledby="hero-title">
+    <div class="container hero__grid">
+      <div class="hero__pitch">
+        <h1 id="hero-title" tabindex="-1"><span>GartStringer</span></h1>
+        <p class="hero__lead">Supersaw trance, no drums.</p>
+        <p class="hero__sub">Ethereal leads that go from euphoric to haunting, rolling trance bass, a gate and an arpeggiator, and a glitch engine, all on the M-VAVE&nbsp;FM-1. Built to sit beside your drum machine.</p>
+        <div class="installer">
+          <div class="row">
+            <button class="btn btn--primary btn--lg" id="go" type="button" disabled>Install on your FM-1</button>
+            <a class="btn" href="play/">Try it in your browser</a>
+          </div>
+          <p class="installer__ver" id="ver"></p>
+          <p class="note" id="nomidi" hidden>Installing needs <b>Chrome or Edge on a computer</b>. On this device you can still <a href="play/">try GartStringer with sound</a>.</p>
+          <noscript><p class="note">The installer needs JavaScript to talk to the FM-1.</p></noscript>
+          <progress id="bar" max="100" value="0" aria-label="Install progress"></progress>
+          <p class="installer__status" id="status" role="status"></p>
+          <p class="pkg" id="pkg" role="status"></p>
+          <label class="check" id="force-box" hidden><input id="force-risk" type="checkbox"><span><b>I understand the risk.</b> Install over this firmware anyway.</span></label>
+          <div class="panel panel--ok" id="done" role="status" hidden>
+            <p class="title" id="done-line"></p>
+            <p>The FM-1 restarted with GartStringer. You can unplug it now. Turn MASTER up slowly, then hold a key.</p>
+          </div>
+          <div class="panel panel--bad" id="interrupted" role="alert" hidden>
+            <h3>The install stopped. In most cases you can start it again.</h3>
+            <p><b>Stopped before “Switching to update mode”?</b> Nothing was written. Plug the cable back in and press Install again.</p>
+            <p><b>Stopped while writing, with the FM-1 still on?</b> It waits in update mode with a black screen. Plug the cable back in and press Install again. Writing starts again from the beginning.</p>
+            <p><b>Did it switch off?</b> Hold OCT− while switching on: update mode. Press Install again.</p>
+            <p><b>No flash at all, or a USB disk called WL82 UBOOT1.00?</b> See “Something went wrong” below.</p>
+          </div>
+        </div>
+      </div>
+      <div class="hero__visual shot"><img src="images/home.png" width="480" height="480" alt="The FM-1's screen: an orange GartStringer logo on a brushed-metal header, a glowing supersaw wave, a trance gate strip and four silver knob plates: cutoff, resonance, detune, filter envelope" fetchpriority="high"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sound" aria-labelledby="sound-title">
+    <div class="container">
+      <p class="eyebrow">The sound</p>
+      <h2 id="sound-title">Five oscillators, six voices, 32 patches</h2>
+      <p class="lead">Leads from Sunrise Anthem to Ghost Signal, basses from Rolling Thunder to Hoover Bass, pads and plucks in between. Every patch is a starting point: nearly fifty parameters sit behind the pages.</p>
+      <div class="grid grid--3">
+        <article class="card"><h3><i class="dot" style="background:var(--pink)"></i>Oscillators</h3><p>Supersaw (seven detuned saws), hyper sync, PWM stack, roll bass and feedback, plus a sub. Detune, mix and colour are knobs.</p></article>
+        <article class="card"><h3><i class="dot" style="background:var(--cyan)"></i>Filter</h3><p>A smooth state-variable filter: 12 and 24 dB low-pass, band, high-pass, and a vowel filter for choirs. Two envelopes, one LFO, glide, mono and legato.</p></article>
+        <article class="card"><h3><i class="dot" style="background:var(--yellow)"></i>Gate and arp</h3><p>A 16-step trance gate with fourteen patterns, and an arpeggiator with eight patterns, octaves and gate length, locked to the tempo.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--band" id="controls" aria-labelledby="controls-title">
+    <div class="container split">
+      <div class="shot"><img src="images/filter.png" width="480" height="480" alt="The filter page: a glowing low-pass curve and four knobs" loading="lazy"></div>
+      <div>
+        <p class="eyebrow">Controls</p>
+        <h2 id="controls-title">Four knobs per page</h2>
+        <table class="keys">
+          <tr><td>K1 – K4</td><td>The four parameters of the page you are on</td></tr>
+          <tr><td>ALGORITHM</td><td>Scroll through that page’s other parameters</td></tr>
+          <tr><td>PRESETS</td><td>Choose a factory patch</td></tr>
+          <tr><td>SELECT</td><td>Tempo</td></tr>
+          <tr><td>EDIT · SCL · ENV · LFO · FX</td><td>Oscillator, filter, envelopes, LFO and effects pages</td></tr>
+          <tr><td>ARP · SEQ</td><td>Arpeggiator and trance gate pages</td></tr>
+          <tr><td>PLAY</td><td>Hold: the notes keep sounding</td></tr>
+          <tr><td>OCT− / OCT+</td><td>Octave</td></tr>
+          <tr><td>SAVE</td><td>Eight slots for your own patches</td></tr>
+          <tr><td>27 keys</td><td>Play, from C3</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="glitch" aria-labelledby="glitch-title">
+    <div class="container split">
+      <div>
+        <p class="eyebrow">Glitch</p>
+        <h2 id="glitch-title">Hold REC and break it</h2>
+        <p class="lead">Stutter, reverse, tape stop and drop-out, on the beat or by chance. Hold REC to fire it by hand; the screen turns red. Drive, bit crush, chorus, a tempo-synced ping-pong echo and a big reverb sit in the same chain.</p>
+      </div>
+      <div class="shot"><img src="images/glitch.png" width="480" height="480" alt="The glitch page in red: a ring, a stuttering wave and four knobs: odds, length, kind, crush" loading="lazy"></div>
+    </div>
+  </section>
+
+  <section class="section section--band" aria-labelledby="install-title">
+    <div class="container">
+      <p class="eyebrow">Install</p>
+      <h2 id="install-title">Your FM-1, in about a minute</h2>
+      <p class="lead">Use Chrome or Edge on a computer, plug the FM-1 in with a data cable and press Install above. Over the official firmware or any firmware that answers, it switches itself to update mode. Already on GartStringer? Hold OCT−, OCT+ and HOME for five seconds (or hold OCT− while switching on) to put it in update mode, then press Install.</p>
+      <div class="installer">
+        <h3>Another version</h3>
+        <div class="chips" id="versions" hidden></div>
+        <p class="note" id="rel-none">No release is listed yet.</p>
+        <p class="note" id="rel-some" hidden>Pick a version above, or choose a .fwsc file you downloaded.</p>
+        <div class="notes" id="notes"></div>
+        <div class="row">
+          <button class="btn btn--sm" id="pkg-pick" type="button">Choose a file…</button>
+          <span class="note" id="pkg-name">No file chosen</span>
+          <input id="pkg-file" type="file" accept=".fwsc" hidden>
+        </div>
+        <p class="pkg" id="pkg-own" role="status"></p>
+        <p class="pkg" id="pkg-sum"></p>
+        <div class="row"><button class="btn btn--sm" id="check-go" type="button" disabled>What is on my FM-1?</button></div>
+        <p class="unit" id="unit" role="status" hidden></p>
+        <details class="log-fold"><summary>Show the log</summary><pre class="log" id="log"></pre></details>
+      </div>
+      <details id="stock">
+        <summary>Return to the official firmware</summary>
+        <p>Choose the unmodified official FM-1 V15 or V16 file (<code>FM-1.fwsc</code>) from M-VAVE. GartStringer is replaced by it.</p>
+        <div class="row">
+          <button class="btn btn--sm" id="stock-pick" type="button">Choose the official file…</button>
+          <span class="note" id="stock-name">No file chosen</span>
+          <input id="stock-file" type="file" accept=".fwsc" hidden>
+        </div>
+        <label class="check"><input id="stock-recovery" type="checkbox"><span>I’m finishing an update that was cut off (the FM-1 is already in update mode).</span></label>
+        <div class="row" style="margin-top:12px"><button class="btn btn--sm" id="stock-go" type="button" disabled>Install the official firmware</button></div>
+        <progress id="stock-bar" max="100" value="0" aria-label="Progress"></progress>
+        <p class="installer__status" id="stock-status" role="status"></p>
+        <div class="panel panel--ok" id="stock-done" role="status" hidden><p class="title" id="stock-done-line"></p></div>
+        <div class="panel panel--bad" id="stock-interrupted" role="alert" hidden><h3>The write stopped.</h3><p>Plug the cable back in and press the button again. It starts from the beginning.</p></div>
+        <details class="log-fold"><summary>Show the log</summary><pre class="log" id="stock-log"></pre></details>
+      </details>
+      <details id="dark">
+        <summary>Something went wrong</summary>
+        <p>An FM-1 that shows nothing and does not answer can still be written: hold OCT− while switching on. If a USB disk called “WL82 UBOOT1.00” appears, the chip’s own boot loader is running; the community unbricker at <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">Quixotic7/MvaveFM1Unbricker</a> restores it.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <p>GartStringer is free software (GPL-3.0). Source: <a href="https://github.com/obbymaul-mp3/GartStringer">github.com/obbymaul-mp3/GartStringer</a>. The FM-1 platform layer builds on Felucca by Leo Kuroshita and Hügelton Instruments; the type is Sora (SIL OFL 1.1). See <a href="firmware/LICENSING.md">LICENSING</a>. Not affiliated with M-VAVE.</p>
+  </div>
+</footer>
+<script type="module" src="installer.js"></script>
+</body>
+</html>
