@@ -15,7 +15,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 SRC = _ROOT / "firmware" / "src" if (_ROOT / "firmware" / "src").is_dir() else _ROOT / "src"   # either layout
-SIZE_FILES = ["sk_ui.c"]               # the pages and knobs: main loop only, never called by sound code
+SIZE_FILES = ["gs_ui.c"]               # the pages and knobs: main loop only, never called by sound code
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 IR_DEF = re.compile(r"^(define [^\n]*?@\"?([\w.]+)\"?\([^\n]*\)(?: unnamed_addr| local_unnamed_addr)?)( #\d+[^\n]*\{)$",
                     re.M)
