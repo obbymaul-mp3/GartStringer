@@ -32,6 +32,7 @@ enum {
     P_GPAT, P_GRATE, P_GDEP, P_GSMO,                        /* trance gate: pattern, rate, depth, smoothing */
     P_APAT, P_ARATE, P_ARNG, P_AGATE, P_AON,                /* arpeggio: pattern, rate, octaves, gate length, on */
     P_GLP, P_GLL, P_GLT, P_CRU,                             /* glitch: chance, length, kind, crush */
+    P_SRATE, P_SLEN, P_SSWG, P_SGATE, P_SDIR,               /* sequencer: rate, length 1..16, swing, gate length, direction */
     P_N
 };
 #define GS_NMODE 5
@@ -46,6 +47,7 @@ static const char *const GS_AP_NAME[8] = {"UP", "DOWN", "UP-DOWN", "RANDOM", "PL
 static const char *const GS_AR_NAME[5] = {"1/8", "1/8 T", "1/16", "1/16 T", "1/32"};
 static const char *const GS_GR_NAME[4] = {"1/8", "1/16", "1/32", "1/16 T"};
 static const char *const GS_GL_NAME[4] = {"STUTTER", "REVERSE", "TAPE STOP", "DROP OUT"};
+static const char *const GS_SD_NAME[4] = {"FORWARD", "REVERSE", "PING-PONG", "RANDOM"};
 static const char *const GS_GLL_NAME[5] = {"1/16", "1/32", "1/8", "1/64", "1/16 T"};
 #define GS_NPAT 14
 static const char *const GS_GT_STR[GS_NPAT] = {
@@ -62,6 +64,7 @@ static const uint8_t GS_DEF[P_N] = {
     60, 40, 2, 50, 40, 70,
     1, 1, 0, 40,   0, 2, 1, 90, 0,
     0, 0, 0, 0,
+    1, 16, 0, 70, 0,
 };
 
 /* ------------------------------------------------------------------ helpers --- */
@@ -115,6 +118,12 @@ static struct {
     int32_t level;                       /* the output's level, 0..255 (the visuals) */
     uint8_t glitch;                      /* 1 while a stutter or a stop is playing (set by the effects) */
     uint8_t note_t;                      /* a note on: the visuals flash (counts down) */
+    /* the step sequencer: sixteen steps, each a note (0..36, 12 = the root) and flags (1 on, 2 accent, 4 slide) */
+    uint8_t sq_n[16], sq_f[16];
+    uint8_t srun, sstep, sdirp, sslide;  /* running, the step now, the ping-pong's way, the step now holds into the next */
+    int8_t snote;                        /* the note sounding, -1 none */
+    uint8_t sroot;                       /* the note a step of 12 plays (the keys move it while it runs) */
+    uint32_t sclk, soff;                 /* samples into the step, and when its note ends */
 } gs;
 
 static uint32_t gs_s16(void) { return 661500u / (uint32_t)(gs.bpm < 40u ? 40u : gs.bpm); }   /* samples a sixteenth */
@@ -602,6 +611,81 @@ static uint32_t gs_arp_int(void)                                   /* samples be
 
 static const uint16_t GS_GRATE[4] = {512, 256, 128, 171};          /* x 1/256 of a sixteenth */
 
+
+/* ------------------------------------------------------------- the sequencer --- */
+static uint32_t gs_seq_len(void)                                   /* samples the step now playing lasts: the rate, the swing on the odd ones */
+{
+    uint32_t base = (uint32_t)(((uint64_t)gs_s16() * GS_GRATE[gs.p[P_SRATE] & 3u]) >> 8), sw = (uint32_t)gs.p[P_SSWG] * 30u / 127u;
+    base = base * ((gs.sstep & 1u) ? 100u - sw : 100u + sw) / 100u;
+    return base < 64u ? 64u : base;
+}
+
+static void gs_seq_stop(void)
+{
+    gs.srun = 0;
+    if (gs.snote >= 0)
+        gs_note_off((uint32_t)gs.snote);
+    gs.snote = -1;
+    gs.sslide = 0;
+}
+
+static void gs_seq_start(void)
+{
+    gs.srun = 1;
+    gs.sstep = 255;                                                /* the first tick plays step 1 */
+    gs.sdirp = 0;
+    gs.sclk = 0xFFFFFFu;
+    gs.snote = -1;
+    gs.sslide = 0;
+    gs.greset = 1;                                                 /* the gate and the clock start with it */
+}
+
+static void gs_seq_step(void)
+{
+    uint32_t len = gs.p[P_SLEN] ? gs.p[P_SLEN] : 1u, d = gs.p[P_SDIR] & 3u, s;
+    int old = gs.snote, oldslide = gs.sslide;
+    uint8_t f;
+    if (len > 16u)
+        len = 16u;
+    if (gs.sstep == 255u)
+        s = d == 1u ? len - 1u : 0u;
+    else if (d == 1u)
+        s = gs.sstep == 0u || gs.sstep >= len ? len - 1u : gs.sstep - 1u;
+    else if (d == 2u) {
+        s = gs.sstep;
+        if (len < 2u)
+            s = 0u;
+        else if (gs.sdirp) {
+            if (s == 0u) { gs.sdirp = 0; s = 1u; } else s--;
+        } else if (s + 1u >= len) { gs.sdirp = 1; s = len - 2u; } else s++;
+    } else if (d == 3u)
+        s = sk_rand() % len;
+    else
+        s = gs.sstep + 1u >= len ? 0u : gs.sstep + 1u;
+    gs.sstep = (uint8_t)s;
+    f = gs.sq_f[s];
+    gs.sclk = 0;
+    {
+        uint32_t cur = gs_seq_len();
+        gs.soff = (uint32_t)(((uint64_t)cur * (uint32_t)(8 + gs.p[P_SGATE])) >> 7);
+        if (gs.soff > cur - 8u)
+            gs.soff = cur - 8u;                                     /* (a note ends before the next step starts) */
+    }
+    gs.sslide = (uint8_t)((f & 5u) == 5u);
+    if (f & 1u) {
+        int note = (int)gs.sroot + (int)gs.sq_n[s] - 12;
+        note = note < 0 ? 0 : note > 120 ? 120 : note;
+        gs_note_on((uint32_t)note, (f & 2u) ? 127u : 92u);
+        if (old >= 0 && !(oldslide && old == note))                /* the note before ends as this one starts (a slide into the same note just goes on) */
+            gs_note_off((uint32_t)old);
+        gs.snote = (int8_t)note;
+    } else {
+        if (old >= 0)
+            gs_note_off((uint32_t)old);
+        gs.snote = -1;
+    }
+}
+
 static void gs_tick(uint32_t n)
 {
     uint32_t s16 = gs_s16(), step_len;
@@ -638,6 +722,16 @@ static void gs_tick(uint32_t n)
         if (gs.gate_t < 0)
             gs.gate_t = 0;
         gs.gate_g += (int32_t)(((int64_t)(gs.gate_t - gs.gate_g) * (int32_t)GS_K[gs.p[P_GSMO]]) >> 16);
+    }
+    /* the sequencer */
+    if (gs.srun) {
+        gs.sclk += n;
+        if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff) {
+            gs_note_off((uint32_t)gs.snote);
+            gs.snote = -1;
+        }
+        while (gs.sclk >= (gs.sstep == 255u ? 0u : gs_seq_len()))
+            gs_seq_step();
     }
     /* the arp */
     if (gs.p[P_AON]) {
@@ -676,6 +770,11 @@ static void gs_del(uint32_t note)
 
 static void gs_key(uint32_t note, int down)
 {
+    if (gs.srun) {                                                 /* while the sequence runs a key moves it: the key is the note step 12 plays */
+        if (down)
+            gs.sroot = (uint8_t)note;
+        return;
+    }
     if (down) {
         if (gs.hold && gs.phys == 0u) {                            /* a fresh chord replaces the held one */
             uint32_t i;
@@ -736,4 +835,6 @@ static void gs_mode_changed(void)
 {
     gs_all_off();
     gs.acur = -1;
+    gs.snote = -1;
+    gs.sslide = 0;
 }

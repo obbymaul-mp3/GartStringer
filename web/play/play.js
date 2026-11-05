@@ -6,7 +6,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const BTN = ["FX", "SCL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT−", "OCT+"];
-  const SUB = ["fx", "filter", "env", "lfo", "osc", "glitch", "home", "save", "arp", "gate", "hold", "glitch", "oct", "oct"];
+  const SUB = ["fx", "filter", "env", "lfo", "osc", "glitch · gate", "home", "save", "arp", "sequencer", "hold · run", "glitch", "oct", "oct"];
   const USED = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   const ROLES = [["SELECT", "tempo"], ["ALGORITHM", "page"], ["PRESETS", "patch"], ["K1", ""], ["K2", ""], ["K3", ""], ["K4", ""]];
   const BLACK = (k) => (0x54a >> ((k + 5) % 12)) & 1;     // key 0 is C

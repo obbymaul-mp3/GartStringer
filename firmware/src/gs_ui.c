@@ -9,7 +9,9 @@
  *   HOME        PLAY page: CUTOFF RESO DETUNE F.ENV      EDIT: DETUNE MIX SUB COLOUR      SCL: the filter
  *   ENV         the amp envelope, again: the filter envelope      LFO: the one LFO
  *   FX          ensemble, echo, feedback, reverb; again: room size, crush, drive, glide
- *   ARP         the arpeggio (again: on/off)      SEQ: the trance gate      GLO: the glitch (the chance of one, its length, kind, crush)
+ *   ARP         the arpeggio (again: on/off)      GLO: the glitch (the chance of one, its length, kind, crush); again: the trance gate
+ *   SEQ         the step sequencer: sixteen steps, ALGORITHM picks the step, K1 note, K2 rest / note / accent / slide, K3 shift all,
+ *               K4 dice; keys write the step when stopped; PLAY runs it (keys then move it); again: rate, length, swing, gate, direction
  *   REC         held: stutter / reverse / tape stop / drop-out, whatever the glitch page says
  *   PLAY        hold (latch the notes)      OCT- / OCT+  the octave of the keys
  *   SAVE        eight slots in the flash: K1 slot, K2 load / save / clear, SAVE again does it
@@ -21,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SAVE, PG_N };
 
 static int32_t sk_in_enc(uint32_t role);
 static void sk_in_buttons(uint32_t *held, uint32_t *pressed);
@@ -54,6 +56,8 @@ static const ui_page_t UI_PG[PG_N] = {
     {"ARPEGGIO", {"PATT", "RATE", "OCTS", "GATE"}, {P_APAT, P_ARATE, P_ARNG, P_AGATE}, P_AON, 1},
     {"TRANCE GATE", {"PATT", "RATE", "DEPTH", "SMOOTH"}, {P_GPAT, P_GRATE, P_GDEP, P_GSMO}, P_GPAT, 1},
     {"GLITCH", {"ODDS", "LENGTH", "KIND", "CRUSH"}, {P_GLP, P_GLL, P_GLT, P_CRU}, P_GLT, 2},
+    {"SEQUENCER", {"NOTE", "TYPE", "SHIFT", "DICE"}, {255, 255, 255, 255}, 255, 1},
+    {"SEQ SETUP", {"RATE", "LENGTH", "SWING", "GATE"}, {P_SRATE, P_SLEN, P_SSWG, P_SGATE}, P_SDIR, 1},
     {"SAVE", {"SLOT", "DO", "", ""}, {255, 255, 255, 255}, 255, 0},
 };
 
@@ -63,6 +67,8 @@ static struct {
     uint32_t k_t[4];                     /* when a knob was last touched */
     uint32_t pop_t, hud_t;               /* the patch name's pop, the HUD */
     uint8_t slot, act;
+    uint8_t cur;                         /* the sequencer page's step */
+    int8_t shift;                        /* what the pattern has been shifted by (shown) */
     uint8_t keys_down[27];
     uint32_t keys_held;
     uint32_t toast_t;
@@ -124,6 +130,8 @@ static const char *ui_val(uint32_t idx, char *buf)
     case P_ARATE: return GS_AR_NAME[v % 5];
     case P_GLL: return GS_GLL_NAME[v % 5];
     case P_GLT: return GS_GL_NAME[v & 3];
+    case P_SRATE: return GS_GR_NAME[v & 3];
+    case P_SDIR: return GS_SD_NAME[v & 3];
     case P_AON: return v ? "ON" : "OFF";
     case P_OCT: ui_num(buf, v - 2); return buf;
     case P_GLIDE: if (!v) return "OFF"; break;
@@ -135,7 +143,7 @@ static const char *ui_val(uint32_t idx, char *buf)
 static int ui_is_enum(uint32_t idx)
 {
     return idx == P_MODE || idx == P_FTYPE || idx == P_LDST || idx == P_LSHP || idx == P_VMODE || idx == P_DTIM || idx == P_GPAT ||
-           idx == P_GRATE || idx == P_APAT || idx == P_ARATE || idx == P_GLL || idx == P_GLT || idx == P_AON;
+           idx == P_GRATE || idx == P_APAT || idx == P_ARATE || idx == P_GLL || idx == P_GLT || idx == P_AON || idx == P_SRATE || idx == P_SDIR;
 }
 static int ui_maxv(uint32_t idx)
 {
@@ -152,6 +160,9 @@ static int ui_maxv(uint32_t idx)
     case P_ARATE: return 4;
     case P_ARNG: return 3;
     case P_AON: return 1;
+    case P_SRATE: return 3;
+    case P_SLEN: return 16;
+    case P_SDIR: return 3;
     case P_GLL: return 4;
     case P_GLT: return 3;
     case P_OCT: return 4;
@@ -186,6 +197,10 @@ static void sv_pack(uint8_t *d)
     d[3] = (uint8_t)gs.oct;
     for (i = 0; i < P_N; i++)
         d[4u + i] = gs.p[i];
+    for (i = 0; i < 16u; i++) {
+        d[4u + P_N + i] = gs.sq_n[i];
+        d[4u + P_N + 16u + i] = gs.sq_f[i];
+    }
 }
 static void sv_unpack(const uint8_t *d)
 {
@@ -201,6 +216,14 @@ static void sv_unpack(const uint8_t *d)
     }
     if (gs.p[P_ARNG] < 1u)
         gs.p[P_ARNG] = 1;
+    if (gs.p[P_SLEN] < 1u)
+        gs.p[P_SLEN] = 16;
+    for (i = 0; i < 16u; i++) {
+        gs.sq_n[i] = (uint8_t)ui_clamp(d[4u + P_N + i], 0, 36);
+        gs.sq_f[i] = d[4u + P_N + 16u + i] & 7u;
+    }
+    gs.snote = -1;
+    gs.sslide = 0;
 }
 static void ui_store_load(void)
 {
@@ -314,9 +337,9 @@ static void ui_input(uint32_t now)
     if (pr & (1u << SB_FX))
         ui_page_press(PG_FX, PG_FX2);
     if (pr & (1u << SB_SEQ))
-        ui_page_press(PG_GATE, 255);
+        ui_page_press(PG_SEQ, PG_SEQ2);
     if (pr & (1u << SB_GLO))
-        ui_page_press(PG_GLITCH, 255);
+        ui_page_press(PG_GLITCH, PG_GATE);
     if (pr & (1u << SB_ARP)) {
         if (ui.page == PG_ARP) {                                    /* on the page: it switches the arp */
             gs_set(P_AON, !gs.p[P_AON]);
@@ -336,15 +359,33 @@ static void ui_input(uint32_t now)
             ui.page = PG_SAVE;
     }
     if (pr & (1u << SB_PLAY)) {
-        gs_set_hold(!gs.hold);
-        ui_toast(gs.hold ? "HOLD ON" : "HOLD OFF", now);
+        if (ui.page == PG_SEQ || ui.page == PG_SEQ2) {              /* on the sequencer's pages PLAY runs it */
+            if (gs.srun) {
+                gs_seq_stop();
+                ui_toast("SEQ STOP", now);
+            } else {
+                if (gs.p[P_AON])
+                    gs_set(P_AON, 0);
+                gs_release_all();
+                gs.sroot = (uint8_t)(60 + 12 * gs.oct);
+                gs_seq_start();
+                ui_toast("SEQ RUN", now);
+            }
+        } else {
+            gs_set_hold(!gs.hold);
+            ui_toast(gs.hold ? "HOLD ON" : "HOLD OFF", now);
+        }
     }
     gl.manual = (uint8_t)((held >> SB_REC) & 1u);
     if (pr & (1u << SB_OCTDN)) {
+        if (gs.srun && gs.sroot >= 12u)
+            gs.sroot = (uint8_t)(gs.sroot - 12u);
         gs.oct = (int8_t)ui_clamp(gs.oct - 1, -2, 2);
         ui.hud_t = now;
     }
     if (pr & (1u << SB_OCTUP)) {
+        if (gs.srun && gs.sroot <= 108u)
+            gs.sroot = (uint8_t)(gs.sroot + 12u);
         gs.oct = (int8_t)ui_clamp(gs.oct + 1, -2, 2);
         ui.hud_t = now;
     }
@@ -356,6 +397,12 @@ static void ui_input(uint32_t now)
             continue;
         if (on && !ui.keys_down[i]) {
             ui.keys_down[i] = (uint8_t)note;
+            if (ui.page == PG_SEQ && !gs.srun) {                    /* stopped, on the sequencer's page: a key writes the step (key 13 is the root) */
+                int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36);
+                gs.sq_n[ui.cur] = (uint8_t)n;
+                gs.sq_f[ui.cur] = (uint8_t)((gs.sq_f[ui.cur] & 6u) | 1u);
+                ui.cur = (uint8_t)((ui.cur + 1u) & 15u);
+            }
             gs_key((uint32_t)note, 1);
         } else if (!on && ui.keys_down[i]) {
             gs_key(ui.keys_down[i], 0);
@@ -373,7 +420,10 @@ static void ui_input(uint32_t now)
         ui.hud_t = now;
     }
     d = ui_enc(SE_ALGO);
-    if (d && UI_PG[ui.page].algo != 255u) {
+    if (d && ui.page == PG_SEQ) {
+        ui.cur = (uint8_t)ui_clamp((int)ui.cur + (d > 0 ? 1 : -1), 0, 15);
+        ui.k_t[0] = now;
+    } else if (d && UI_PG[ui.page].algo != 255u) {
         uint32_t idx = UI_PG[ui.page].algo;
         gs_set(idx, (int)gs.p[idx] + (d > 0 ? 1 : -1));
         ui.k_t[0] = now;
@@ -382,6 +432,41 @@ static void ui_input(uint32_t now)
         d = ui_enc(SE_K1 + i);
         if (!d)
             continue;
+        if (ui.page == PG_SEQ) {
+            int sg = d > 0 ? 1 : -1;
+            ui.k_t[i] = now;
+            if (i == 0u) {
+                gs.sq_n[ui.cur] = (uint8_t)ui_clamp((int)gs.sq_n[ui.cur] + d, 0, 36);
+                gs.sq_f[ui.cur] |= 1u;
+            } else if (i == 1u) {
+                uint8_t f = gs.sq_f[ui.cur];
+                int t = !(f & 1u) ? 0 : (f & 4u) ? ((f & 2u) ? 4 : 3) : (f & 2u) ? 2 : 1;
+                static const uint8_t TF[5] = {0, 1, 3, 5, 7};
+                gs.sq_f[ui.cur] = TF[ui_clamp(t + sg, 0, 4)];
+            } else if (i == 2u) {                                   /* shift the whole pattern, if none would leave the range */
+                int k, ok = 1;
+                for (k = 0; k < 16; k++)
+                    if ((gs.sq_f[k] & 1u) && ((int)gs.sq_n[k] + sg < 0 || (int)gs.sq_n[k] + sg > 36))
+                        ok = 0;
+                if (ok) {
+                    for (k = 0; k < 16; k++)
+                        if (gs.sq_f[k] & 1u)
+                            gs.sq_n[k] = (uint8_t)((int)gs.sq_n[k] + sg);
+                    ui.shift = (int8_t)ui_clamp(ui.shift + sg, -99, 99);
+                }
+            } else {                                                /* dice: a new pattern in the trance minor */
+                static const uint8_t SC[9] = {0, 0, 3, 5, 7, 7, 10, 12, 15};
+                int k;
+                for (k = 0; k < 16; k++) {
+                    uint32_t r = sk_rand();
+                    int on = (k & 3) == 0 ? (r & 15u) < 14u : (r & 15u) < 10u;
+                    gs.sq_n[k] = (uint8_t)(12 + SC[(r >> 4) % 9u] - ((r >> 12) % 6u == 0u ? 12 : 0));
+                    gs.sq_f[k] = on ? (uint8_t)(1u | (((r >> 16) % 5u == 0u) ? 2u : 0u) | (((r >> 20) % 8u == 0u) ? 4u : 0u)) : 0u;
+                }
+                ui.shift = 0;
+            }
+            continue;
+        }
         if (ui.page == PG_SAVE) {
             if (i == 0u)
                 ui.slot = (uint8_t)ui_clamp((int)ui.slot + (d > 0 ? 1 : -1), 0, SV_N - 1);
@@ -398,16 +483,16 @@ static void ui_input(uint32_t now)
     }
     /* the lamps: the page's button, the arp, the hold, the glitch */
     {
-        static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_GATE, 255, 255, 255, 255};
+        static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2)))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && ui.page == PG_SEQ2)))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
-            else if (i == SB_SEQ && gs.p[P_GDEP] && gs.p[P_GPAT] != 13u)
+            else if (i == SB_SEQ && gs.srun)
                 lv = 2;
-            else if (i == SB_GLO && gs.p[P_GLP])
+            else if (i == SB_GLO && (gs.p[P_GLP] || (gs.p[P_GDEP] && gs.p[P_GPAT] != 13u)))
                 lv = 1;
             else if (i == SB_PLAY && gs.hold)
                 lv = 3;
@@ -809,6 +894,32 @@ static void vz_gate(uint32_t now)
     }
 }
 
+/* the sequencer: sixteen columns on the floor, tall by their note; a rest is a flat slab, an accent burns red, a slide has a bridge to the
+ * next; the step playing glows, steps past the length are dim silver, and on the edit page a marker shows the step the knobs write */
+static void vz_seq(uint32_t now)
+{
+    int i, len = gs.p[P_SLEN] ? gs.p[P_SLEN] : 16, run = gs.srun;
+    g3_cam(VX + VW / 2, VY + 62, 260, 260, 60);
+    for (i = 0; i < 16; i++) {
+        uint8_t f = gs.sq_f[i];
+        int on = f & 1, h = on ? 8 + gs.sq_n[i] * 48 / 36 : 3, x = i * 13 - 97, playing = run && i == gs.sstep;
+        int out = i >= len;
+        if (!out && on && (f & 4) && i + 1 < len)                              /* the slide's bridge */
+            g3_draw(&G3_CUBE, x + 7, h / 2, 0, 3, 1, 1, 0, 0, 0, C_O0, 8, 2, C_O4);
+        if (out)
+            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_S0, 4, 0, C_S1);
+        else if (on && (f & 2))
+            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_R0, 5, playing ? 4 : 1, C_HOT);
+        else
+            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
+    }
+    if (ui.page == PG_SEQ) {                                                    /* the step the knobs write */
+        int x = VX + VW / 2 + ui.cur * 13 - 97, y = VY + VH - 8;
+        fb_rect(x - 5, y, 11, 3, ((now >> 8) & 1u) ? C_HOT : C_O6);
+        fb_pset(x, y - 1, C_HOT);
+    }
+}
+
 /* the glitch: a cube of eight shards that comes apart as the kind says, beside what the kind does to a wave */
 static void vz_glitch(uint32_t now)
 {
@@ -921,6 +1032,7 @@ static void vz_save(uint32_t now)
 /* ---------------------------------------------------------------------- the frame --- */
 static const char *const UI_SAVE_ACT[3] = {"LOAD", "SAVE", "CLEAR"};
 
+static int ui_ov_v, ui_ov_m;                                   /* the bar of the next plate, when it is not a parameter (ui_ov_m 0: none) */
 static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int accent)
 {
     int x = 6 + i * 58, y = 156, w = 54, h = 76;
@@ -928,6 +1040,10 @@ static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int a
     char buf[16];
     const char *val;
     int v = idx == 255u ? 0 : gs.p[idx], mx = idx == 255u ? 1 : ui_maxv(idx), k, seg = 16, lit;
+    if (ui_ov_m) {                                                                  /* a plate that is not a parameter: its bar is given */
+        v = ui_ov_v;
+        mx = ui_ov_m;
+    }
     fb_rbox(x, y, w, h, 5, C_K1);
     fb_frame(x, y, w, h, hot ? C_R3 : C_S1);
     ui_metal(x + 3, y + 3, w - 6, 15);                                              /* the engraved label strip */
@@ -982,7 +1098,7 @@ static void ui_status(uint32_t now)
     {
         static const char *const LN[4] = {"ARP", "GATE", "HOLD", "GLITCH"};
         uint8_t on[4];
-        on[0] = gs.p[P_AON];
+        on[0] = gs.p[P_AON] || gs.srun;
         on[1] = gs.p[P_GDEP] && gs.p[P_GPAT] != 13u;
         on[2] = gs.hold;
         on[3] = gl.on;
@@ -992,7 +1108,7 @@ static void ui_status(uint32_t now)
             fb_frame(x - 1, 140, 10, 10, C_S1);
             if (on[i])
                 fb_pset(x + 2, 143, C_HOT);
-            fb_text(x + 12, 139, LN[i], on[i] ? C_INK : C_INK2);
+            fb_text(x + 12, 139, i == 0 && gs.srun ? "SEQ" : LN[i], on[i] ? C_INK : C_INK2);
             x += w + 10;
         }
     }
@@ -1089,6 +1205,10 @@ static void ui_draw(uint32_t now)
     case PG_GLITCH:
         vz_glitch(now);
         break;
+    case PG_SEQ:
+    case PG_SEQ2:
+        vz_seq(now);
+        break;
     default:
         vz_save(now);
         break;
@@ -1101,6 +1221,16 @@ static void ui_draw(uint32_t now)
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
     if (ui.page == PG_HOME || ui.page == PG_OSC)
         fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
+    else if (ui.page == PG_SEQ || ui.page == PG_SEQ2) {
+        char b[16], *p = b;
+        if (ui.page == PG_SEQ) {
+            p = ui_str(p, "STEP ");
+            p = ui_num(p, ui.cur + 1);
+            p = ui_str(p, gs.srun ? "  RUN" : "  STOP");
+        } else
+            p = ui_str(p, gs.srun ? "RUN" : "STOP");
+        fb_text_r(VX + VW - 12, VY + 3, b, gs.srun ? C_HOT : C_INK);
+    }
     else if (ui.page == PG_FLT)
         fb_text_r(VX + VW - 4, VY + 3, GS_FT_NAME[gs.p[P_FTYPE] % GS_NFT], C_INK);
     {
@@ -1122,6 +1252,42 @@ static void ui_draw(uint32_t now)
                 fb_text_c(6 + 58 + 27, 156 + 31, UI_SAVE_ACT[ui.act], C_O6);
             } else
                 ui_plate((int)i, "", 255, now, 0);
+        } else if (ui.page == PG_SEQ) {
+            char b[12];
+            uint8_t f = gs.sq_f[ui.cur];
+            static const char *const TN[5] = {"REST", "NOTE", "ACCENT", "SLIDE", "ACC+SLD"};
+            int t = !(f & 1u) ? 0 : (f & 4u) ? ((f & 2u) ? 4 : 3) : (f & 2u) ? 2 : 1, cx = 6 + (int)i * 58 + 27;
+            if (i == 0u) {
+                int n = (int)gs.sq_n[ui.cur] - 12;
+                char *p = b;
+                if (n > 0)
+                    *p++ = '+';
+                ui_num(p, n);
+                ui_ov_v = gs.sq_n[ui.cur];
+                ui_ov_m = 36;
+                ui_plate(0, pg->k[0], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, f & 1u ? C_O6 : C_INK2, 0);
+            } else if (i == 1u) {
+                ui_ov_v = t;
+                ui_ov_m = 4;
+                ui_plate(1, pg->k[1], 255, now, 1);
+                fb_text_c(cx, 156 + 31, TN[t], C_O6);
+            } else if (i == 2u) {
+                char *p = b;
+                if (ui.shift > 0)
+                    *p++ = '+';
+                ui_num(p, ui.shift);
+                ui_ov_v = 18 + ui.shift;
+                ui_ov_m = 36;
+                ui_plate(2, pg->k[2], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, C_O6, 0);
+            } else {
+                ui_ov_v = 0;
+                ui_ov_m = 1;
+                ui_plate(3, pg->k[3], 255, now, 1);
+                fb_text_c(cx, 156 + 31, "ROLL", C_O6);
+            }
+            ui_ov_m = 0;
         } else
             ui_plate((int)i, pg->k[i], pg->p[i], now, 1);
     }
