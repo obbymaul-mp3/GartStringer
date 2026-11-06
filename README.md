@@ -18,6 +18,8 @@ A supersaw trance synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N). Leads
 K1–K4: the page's four parameters. ALGORITHM: the page's other parameters. PRESETS: patch. SELECT: tempo. EDIT / SCL / ENV / LFO / FX / ARP / SEQ / GLO: oscillator, filter, envelopes, LFO, effects, arp, sequencer and glitch pages (SEQ again: its setup; GLO again: the trance gate). PLAY: hold, or run / stop on the sequencer pages (SEQ again: setup, again: bar tools). On the editing pages OCT± jumps a bar. REC held: glitch. OCT±: octave. SAVE: slots. The 27 keys play from C3.
 
 ## Build
+**Updating.** From 0.5 the running instrument has USB-MIDI and answers the installer page, which updates it in one click. 0.4.0 and earlier have no USB in the instrument: their update mode (OCT− at power-on, or OCT−+OCT++HOME for five seconds) is the chip's own boot loader (a USB disk `WL82 UBOOT1.00`), written with the community tool MvaveFM1Unbricker from Windows or Linux.
+
 `sh build.sh` (device image, needs the JieLi toolchain: `tools/get_toolchain.sh`), `sh tools/build_web.sh` (browser version), `sh tools/make_site.sh OUT` (site). Pushing a `v*` tag builds a release (`release.yml`); `pages.yml` publishes the site and installer.
 
 ## Licence
