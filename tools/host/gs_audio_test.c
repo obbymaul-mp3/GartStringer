@@ -13,7 +13,7 @@
 #include "../../firmware/src/gs_fx.c"
 #include "../../firmware/src/gs_patch.c"
 
-static const char *PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SLEN", "SSWG", "SGATE", "SDIR", "CON", "CKEY", "CSCL", "CLAY", "CVOI"};
+static const char *PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "SPARE", "CON", "CKEY", "CSCL", "CLAY", "CVOI"};
 
 static void wav(const char *path, int16_t *pcm, uint32_t frames)
 {

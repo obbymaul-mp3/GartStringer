@@ -9,7 +9,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GartStringer: play it in your browser</title>
 <meta name="description" content="The whole GartStringer instrument running in your browser: a supersaw trance synth with 32 patches, an arpeggiator, a trance gate and glitch effects.">
-<meta name="theme-color" content="#0a0806">
+<meta name="theme-color" content="#0a0614">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../site.css">
 <style>
@@ -17,7 +17,7 @@
   .stage { display: grid; grid-template-columns: minmax(280px, 480px) 1fr; gap: 28px; align-items: start; }
   .screen { position: relative; }
   #lcd { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 10px; border: 1px solid var(--line); background: #000; display: block; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
-  .start { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10,8,6,.6); border-radius: 10px; backdrop-filter: blur(2px); }
+  .start { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10,6,20,.6); border-radius: 10px; backdrop-filter: blur(2px); }
   .start[hidden] { display: none; }
   .panelbox { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
   .knobs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; }
@@ -29,11 +29,11 @@
   .knob small { display: block; font-size: 10px; color: var(--ink3); }
   .btns { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 16px; }
   .b { font: 600 11px/1 "Sora", sans-serif; letter-spacing: .06em; color: var(--ink); background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 2px; cursor: pointer; user-select: none; touch-action: none; position: relative; }
-  .b.l1 { box-shadow: inset 0 0 0 1px #8a4a20; } .b.l2 { background: #6a2e12; } .b.l3 { background: var(--pink); color: #1a1022; border-color: var(--pink); }
-  .b small { display: block; font-weight: 400; font-size: 9px; color: var(--ink3); margin-top: 4px; letter-spacing: 0; } .b.l3 small { color: #4a1e0c; }
+  .b.l1 { box-shadow: inset 0 0 0 1px #8a2aa8; } .b.l2 { background: #4a1478; } .b.l3 { background: var(--pink); color: #1a1022; border-color: var(--pink); }
+  .b small { display: block; font-weight: 400; font-size: 9px; color: var(--ink3); margin-top: 4px; letter-spacing: 0; } .b.l3 small { color: #2a0a48; }
   .keys { display: grid; grid-template-columns: repeat(27, 1fr); gap: 3px; margin-top: 16px; }
-  .k { aspect-ratio: 1 / 2.4; border-radius: 6px 6px 10px 10px; background: #2a241f; border: 1px solid var(--line); cursor: pointer; position: relative; touch-action: none; user-select: none; }
-  .k.blk { background: #0c0a08; }
+  .k { aspect-ratio: 1 / 2.4; border-radius: 6px 6px 10px 10px; background: #2a2248; border: 1px solid var(--line); cursor: pointer; position: relative; touch-action: none; user-select: none; }
+  .k.blk { background: #0c0818; }
     .k i { position: absolute; left: 50%; bottom: 6px; width: 6px; height: 14px; margin-left: -3px; border-radius: 3px; background: #1c1a30; }
   .k.l1 i { background: #4a4070; } .k.l2 i { background: var(--c, var(--lav)); opacity: .55; } .k.l3 i { background: var(--c, var(--yellow)); box-shadow: 0 0 10px var(--c, var(--yellow)); }
   .k small { position: absolute; bottom: 24px; left: 0; right: 0; text-align: center; font-size: 8px; color: var(--ink3); }

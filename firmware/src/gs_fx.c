@@ -330,6 +330,32 @@ static void gs_space(void)
 static uint32_t sk_fade = 4096, sk_fade_to = 4096;
 
 /* one block: the voices, the gate, the effects, the master. out: interleaved L R, Q15 */
+/* the title's saw: six detuned saws on an open A (two octaves, a fifth) behind a filter that opens as the note swells and
+ * closes as it fades; 2.5 s, gone as the title goes (gs_intro_n counts samples, 0 = silent) */
+static uint32_t gs_intro_n, gs_intro_ph[6];
+static int32_t gs_intro_lp;
+static int32_t gs_intro_sample(void)
+{
+    static const uint32_t INC[6] = {10713070u, 10761766u, 16050127u, 21426141u, 21484576u, 32100254u};   /* 110, 110.5, 164.8, 220, 220.6, 329.6 Hz */
+    uint32_t n = gs_intro_n, up = 48510u, all = 110250u, i;
+    int32_t e, x = 0;
+    if (!n)
+        return 0;
+    if (n >= all) {
+        gs_intro_n = 0;
+        return 0;
+    }
+    gs_intro_n = n + 1u;
+    e = (int32_t)(n < up ? n * 4096u / up : (all - n) * 4096u / (all - up));         /* a triangle 0..4096 */
+    e = (e * e) >> 12;                                                              /* eased */
+    for (i = 0; i < 6u; i++) {
+        gs_intro_ph[i] += INC[i];
+        x += (int32_t)gs_intro_ph[i] >> 20;
+    }
+    gs_intro_lp += (int32_t)(((int64_t)(x - gs_intro_lp) * (200 + e * 9 / 10)) >> 12);
+    return (int32_t)(((int64_t)gs_intro_lp * e) >> 12) * 3 / 2;
+}
+
 static void sk_render(int32_t *out, uint32_t n)
 {
     int32_t m[SK_CTL], l[SK_CTL], r[SK_CTL], wl[SK_CTL], wr[SK_CTL], sd[SK_CTL], rv[SK_CTL];
@@ -403,6 +429,16 @@ static void sk_render(int32_t *out, uint32_t n)
         sk_f.mlow2[1] += sk_q15(sk_f.mlow[1] - sk_f.mlow2[1], 23000);
         a = sk_f.mlow2[0];
         b = sk_f.mlow2[1];
+        if (gs_intro_n) {
+            int32_t k = gs_intro_sample();
+            a += k;
+            b += k;
+        }
+        if (gs.srun) {                                              /* the metronome rides over the sound, at the master's level */
+            int32_t k = gs_click_sample();
+            a += k;
+            b += k;
+        }
         a = (a * (int32_t)sk_f.master) >> 12;
         b = (b * (int32_t)sk_f.master) >> 12;
         a = (a * (int32_t)sk_fade) >> 12;

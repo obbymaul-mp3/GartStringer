@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 GartStringer contributors */
-/* GartStringer's pages: deep black, brushed silver, orange and a hint of red, Sora. Shared by the first page and the play page. */
+/* GartStringer's pages: deep indigo, neon magenta and cyan, Sora. Shared by the first page and the play page. */
 @font-face { font-family: "Sora"; src: url("fonts/Sora.ttf") format("truetype"); font-weight: 100 800; font-display: swap; }
 :root {
-  --bg: #0a0806; --bg2: #120e0b; --panel: #171210; --panel2: #241c17; --line: #3a2f28;
-  --ink: #f2ece6; --ink2: #b3a79d; --ink3: #85796f;
-  --pink: #ff5a2a; --cyan: #c8ced6; --yellow: #ffb03a; --green: #9fe0b4; --ember: #ff8a1f; --lav: #e23a2e;
+  --bg: #0a0614; --bg2: #120a22; --panel: #160e2a; --panel2: #221640; --line: #3a2a64;
+  --ink: #f4ecff; --ink2: #b4a8d8; --ink3: #8478ac;
+  --pink: #ff3fe0; --cyan: #3ff0ff; --yellow: #b898ff; --green: #40ffd0; --ember: #b024d0; --lav: #ff58f0;
   --r: 14px;
 }
 * { box-sizing: border-box; }
@@ -15,7 +15,7 @@ a { color: var(--cyan); text-underline-offset: 3px; }
 a:hover { color: var(--pink); }
 .container { width: min(1040px, 100% - 32px); margin: 0 auto; }
 .skip { position: absolute; left: -999px; } .skip:focus { left: 8px; top: 8px; background: var(--panel); padding: 8px 12px; z-index: 9; }
-.site-header { position: sticky; top: 0; z-index: 5; background: rgba(10, 8, 6, .85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.site-header { position: sticky; top: 0; z-index: 5; background: rgba(10, 6, 20, .85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .site-header__row { display: flex; align-items: center; gap: 20px; height: 60px; }
 .brand { font-weight: 700; letter-spacing: .22em; font-size: 15px; color: var(--ink); text-decoration: none; display: flex; gap: 10px; align-items: center; }
 .brand i { width: 10px; height: 10px; background: var(--pink); display: inline-block; box-shadow: 14px 0 var(--cyan), 28px 0 var(--yellow); margin-right: 28px; }
@@ -24,10 +24,10 @@ a:hover { color: var(--pink); }
 .btn { font: 600 15px/1 "Sora", sans-serif; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--ink); padding: 14px 22px; cursor: pointer; text-decoration: none; display: inline-block; }
 .btn:hover:not(:disabled) { border-color: var(--lav); color: var(--ink); }
 .btn:disabled { opacity: .45; cursor: default; }
-.btn--primary { background: linear-gradient(90deg, var(--pink), var(--ember)); color: #1a0c04; border: 0; }
-.btn--primary:hover:not(:disabled) { color: #1a0c04; filter: brightness(1.08); }
+.btn--primary { background: linear-gradient(90deg, var(--pink), var(--ember)); color: #12062a; border: 0; }
+.btn--primary:hover:not(:disabled) { color: #12062a; filter: brightness(1.08); }
 .btn--sm { padding: 10px 16px; font-size: 13px; } .btn--lg { padding: 18px 30px; font-size: 17px; }
-.hero { padding: 72px 0 56px; background: radial-gradient(120% 90% at 70% 0%, #5a2a10 0%, #2a130a 40%, var(--bg) 78%); }
+.hero { padding: 72px 0 56px; background: radial-gradient(120% 90% at 70% 0%, #4a1478 0%, #1c0a34 40%, var(--bg) 78%); }
 .hero__grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 40px; align-items: center; }
 h1 { font-size: clamp(40px, 7vw, 72px); line-height: 1; letter-spacing: .12em; margin: 0 0 14px; font-weight: 700; }
 h1 span { background: linear-gradient(90deg, var(--ember), var(--pink) 50%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }

@@ -13,9 +13,16 @@ static void gs_load(uint32_t i)
     for (k = 0; k < P_N; k++)
         gs.p[k] = GS_PRE[gs.preset].p[k];
     gs.bpm = GS_PRE[gs.preset].bpm;
-    for (k = 0; k < GS_NS; k++) {                                  /* the patch's bar, laid over all the bars (the clock goes on if it runs) */
-        gs.sq_n[k] = GS_PRE[gs.preset].sq[k & 15u];
-        gs.sq_f[k] = GS_PRE[gs.preset].sq[16u + (k & 15u)];
+    {                                                              /* the patch's bar is pattern A; B, C and D start as copies of it (the clock goes on if it runs) */
+        uint32_t pt;
+        for (pt = 0; pt < GS_NP; pt++) {
+            for (k = 0; k < GS_NS; k++) {
+                uint8_t n = GS_PRE[gs.preset].sq[k & 15u], f = GS_PRE[gs.preset].sq[16u + (k & 15u)];
+                gs.sp[pt][k] = k < 16u && (f & 1u) ? SP_MAKE((int)n, f & 2u, f & 4u) : 0u;
+            }
+            gs.spl[pt] = 16;
+        }
+        gs.pnext = 255;
     }
     gs.snote = -1;
     gs.sslide = 0;
@@ -31,6 +38,8 @@ static void gs_init(void)
     gs.acur = -1;
     gs.snote = -1;
     gs.sroot = 60;
+    gs.pcur = 0;
+    gs.pnext = 255;
     gs.rmask = 0x5555u;
     gs_load(0);
 }
@@ -41,7 +50,7 @@ static void gs_set(uint32_t idx, int v)
     static const uint8_t MAXV[P_N] = {
         [P_MODE] = GS_NMODE - 1, [P_OCT] = 4, [P_FTYPE] = GS_NFT - 1, [P_LDST] = 4, [P_LSHP] = 3, [P_VMODE] = 2, [P_DTIM] = 5,
         [P_GPAT] = GS_NPAT - 1, [P_GRATE] = 3, [P_APAT] = 7, [P_ARATE] = 4, [P_ARNG] = 3, [P_AON] = 1, [P_GLL] = 4, [P_GLT] = 3,
-        [P_SRATE] = 3, [P_SDIR] = 3, [P_CON] = 1, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 3,
+        [P_SRATE] = 3, [P_SMET] = 3, [P_CON] = 1, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 3,
     };
     int mx = MAXV[idx] ? MAXV[idx] : 127;
     if (v < 0)
