@@ -34,6 +34,7 @@ enum {
     P_APAT, P_ARATE, P_ARNG, P_AGATE, P_AON,                /* arpeggio: pattern, rate, octaves, gate length, on */
     P_GLP, P_GLL, P_GLT, P_CRU,                             /* glitch: chance, length, kind, crush */
     P_SRATE, P_SLEN, P_SSWG, P_SGATE, P_SDIR,               /* sequencer: rate, length (steps - 1), swing, gate length, direction */
+    P_CON, P_CKEY, P_CSCL, P_CLAY, P_CVOI,                  /* chords: on, key, scale, layout (top, top lock, side, side lock), voicing */
     P_N
 };
 #define GS_NMODE 5
@@ -58,6 +59,9 @@ static const char *const GS_GT_STR[GS_NPAT] = {
 };
 static const char *const GS_GT_NAME[GS_NPAT] = {"OFFBEAT", "BOUNCE", "ROLLING", "TRANCE A", "TRANCE B", "3-3-2", "STUTTER", "DOUBLE", "SYNCOPE", "SKIP", "SPARSE", "HAUNT", "RANDOM", "OPEN"};
 
+/* the voice mode as played: the chord instrument needs every voice, so it plays polyphonic whatever the patch says */
+#define GS_VM() ((uint32_t)(gs.p[P_CON] ? 0u : gs.p[P_VMODE]))
+
 static const uint8_t GS_DEF[P_N] = {
     0, 54, 64, 20, 60, 2,   60, 40, 70, 30, 0, 12,
     4, 50, 110, 40, 8, 60, 40, 40,
@@ -66,6 +70,7 @@ static const uint8_t GS_DEF[P_N] = {
     1, 1, 0, 40,   0, 2, 1, 90, 0,
     0, 0, 0, 0,
     1, 15, 0, 70, 0,
+    0, 0, 1, 1, 0,
 };
 
 /* ------------------------------------------------------------------ helpers --- */
@@ -195,7 +200,7 @@ static uint32_t gs_alloc(void)
 static void gs_note_on(uint32_t note, uint32_t vel)
 {
     uint32_t i, any = 0;
-    if (gs.p[P_VMODE] == 0u) {
+    if (GS_VM() == 0u) {
         for (i = 0; i < GS_NV; i++)                              /* the same note again: retrigger it */
             if (gs.v[i].on && gs.v[i].gate && gs.v[i].note == note) {
                 gs_voice_on(i, note, vel, 1);
@@ -207,13 +212,13 @@ static void gs_note_on(uint32_t note, uint32_t vel)
     for (i = 1; i < GS_NV; i++)
         gs_voice_off(i);
     any = gs.v[0].on && gs.v[0].gate;
-    gs_voice_on(0, note, vel, !(gs.p[P_VMODE] == 2u && any));
+    gs_voice_on(0, note, vel, !(GS_VM() == 2u && any));
 }
 
 static void gs_note_off(uint32_t note)
 {
     uint32_t i;
-    if (gs.p[P_VMODE] == 0u) {
+    if (GS_VM() == 0u) {
         for (i = 0; i < GS_NV; i++)
             if (gs.v[i].on && gs.v[i].gate && gs.v[i].note == note)
                 gs_voice_off(i);
@@ -807,7 +812,7 @@ static void gs_key(uint32_t note, int down)
             }
             return;
         }
-        if (gs.p[P_VMODE] == 0u)
+        if (GS_VM() == 0u)
             gs_note_off(note);
         else if (gs.nh)
             gs_note_on(gs.hn[gs.nh - 1u], 110u);                   /* back to the key still held */

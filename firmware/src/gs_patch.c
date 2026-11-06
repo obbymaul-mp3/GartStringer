@@ -41,7 +41,7 @@ static void gs_set(uint32_t idx, int v)
     static const uint8_t MAXV[P_N] = {
         [P_MODE] = GS_NMODE - 1, [P_OCT] = 4, [P_FTYPE] = GS_NFT - 1, [P_LDST] = 4, [P_LSHP] = 3, [P_VMODE] = 2, [P_DTIM] = 5,
         [P_GPAT] = GS_NPAT - 1, [P_GRATE] = 3, [P_APAT] = 7, [P_ARATE] = 4, [P_ARNG] = 3, [P_AON] = 1, [P_GLL] = 4, [P_GLT] = 3,
-        [P_SRATE] = 3, [P_SDIR] = 3,
+        [P_SRATE] = 3, [P_SDIR] = 3, [P_CON] = 1, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 3,
     };
     int mx = MAXV[idx] ? MAXV[idx] : 127;
     if (v < 0)

@@ -23,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SEQ3, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_SAVE, PG_N };
 
 static int32_t sk_in_enc(uint32_t role);
 static void sk_in_buttons(uint32_t *held, uint32_t *pressed);
@@ -59,6 +59,7 @@ static const ui_page_t UI_PG[PG_N] = {
     {"SEQUENCER", {"NOTE", "TYPE", "SHIFT", "DICE"}, {255, 255, 255, 255}, 255, 1},
     {"SEQ SETUP", {"RATE", "LENGTH", "SWING", "GATE"}, {P_SRATE, P_SLEN, P_SSWG, P_SGATE}, P_SDIR, 1},
     {"SEQ TOOLS", {"COPY", "CLEAR", "REPEAT", "ROTATE"}, {255, 255, 255, 255}, 255, 1},
+    {"CHORDS", {"KEY", "SCALE", "LAYOUT", "VOICE"}, {P_CKEY, P_CSCL, P_CLAY, P_CVOI}, P_CON, 0},
     {"SAVE", {"SLOT", "DO", "", ""}, {255, 255, 255, 255}, 255, 0},
 };
 
@@ -71,7 +72,7 @@ static struct {
     uint8_t cur;                         /* the sequencer page's step, 0..127 */
     uint32_t cur_t;                      /* when it was last moved (the view follows the playhead after a while) */
     int8_t shift;                        /* what the pattern has been shifted by (shown) */
-    uint8_t keys_down[27];
+    uint8_t keys_down[27], kchord[27], con_prev;
     uint32_t keys_held;
     uint32_t toast_t;
     char toast[20];
@@ -116,6 +117,8 @@ static char *ui_str(char *p, const char *s)
     return p;
 }
 
+#include "gs_chord.c"
+
 /* a parameter as the plate shows it: text for a choice, a number for the rest */
 static const char *ui_val(uint32_t idx, char *buf)
 {
@@ -134,6 +137,11 @@ static const char *ui_val(uint32_t idx, char *buf)
     case P_GLL: return GS_GLL_NAME[v % 5];
     case P_GLT: return GS_GL_NAME[v & 3];
     case P_SLEN: ui_num(buf, v + 1); return buf;
+    case P_CKEY: return CD_NOTE[v % 12];
+    case P_CSCL: return CD_SCNAME[v % CD_NSC];
+    case P_CLAY: return CD_LAYNAME[v & 3];
+    case P_CVOI: return CD_VOINAME[v & 3];
+    case P_CON: return v ? "ON" : "OFF";
     case P_SRATE: return GS_GR_NAME[v & 3];
     case P_SDIR: return GS_SD_NAME[v & 3];
     case P_AON: return v ? "ON" : "OFF";
@@ -147,7 +155,7 @@ static const char *ui_val(uint32_t idx, char *buf)
 static int ui_is_enum(uint32_t idx)
 {
     return idx == P_MODE || idx == P_FTYPE || idx == P_LDST || idx == P_LSHP || idx == P_VMODE || idx == P_DTIM || idx == P_GPAT ||
-           idx == P_GRATE || idx == P_APAT || idx == P_ARATE || idx == P_GLL || idx == P_GLT || idx == P_AON || idx == P_SRATE || idx == P_SDIR;
+           idx == P_GRATE || idx == P_APAT || idx == P_ARATE || idx == P_GLL || idx == P_GLT || idx == P_AON || idx == P_SRATE || idx == P_SDIR || idx == P_CKEY || idx == P_CSCL || idx == P_CLAY || idx == P_CVOI || idx == P_CON;
 }
 static int ui_maxv(uint32_t idx)
 {
@@ -165,6 +173,11 @@ static int ui_maxv(uint32_t idx)
     case P_ARNG: return 3;
     case P_AON: return 1;
     case P_SRATE: return 3;
+    case P_CON: return 1;
+    case P_CKEY: return 11;
+    case P_CSCL: return CD_NSC - 1;
+    case P_CLAY: return 3;
+    case P_CVOI: return 3;
     case P_SDIR: return 3;
     case P_GLL: return 4;
     case P_GLT: return 3;
@@ -337,8 +350,11 @@ static void ui_input(uint32_t now)
     if (ui.intro && (pr || kp))
         ui.intro = 0;
     /* pages */
-    if (pr & (1u << SB_HOME))
-        ui.page = PG_HOME;
+    if (pr & (1u << SB_HOME)) {                                     /* HOME, and again: the chords */
+        ui.page = ui.page == PG_HOME ? PG_CHORD : PG_HOME;
+        if (ui.page == PG_CHORD)
+            ui_toast(gs.p[P_CON] ? "CHORDS ON" : "TURN ALGORITHM: CHORDS ON", now);
+    }
     if (pr & (1u << SB_EDIT))
         ui_page_press(PG_OSC, 255);
     if (pr & (1u << SB_SCL))
@@ -419,6 +435,12 @@ static void ui_input(uint32_t now)
         gs.oct = (int8_t)ui_clamp(gs.oct + 1, -2, 2);
         ui.hud_t = now;
     }
+    if (!gs.p[P_CON] && (cd_down || cd.held || cd.sounding))          /* switched off: let go of what the chords hold */
+        cd_all_off();
+    if (gs.p[P_CON] != ui.con_prev) {
+        ui.con_prev = gs.p[P_CON];
+        ui_toast(gs.p[P_CON] ? "CHORDS ON" : "CHORDS OFF", now);
+    }
     /* the keys: 27 notes from C3, moved by the octave */
     for (i = 0; i < 27u; i++) {
         uint32_t on = (keys >> i) & 1u;
@@ -435,9 +457,17 @@ static void ui_input(uint32_t now)
                 ui.cur = (uint8_t)ui_clamp((int)ui.cur + 1, 0, GS_NS - 1);
                 ui.cur_t = now;
             }
-            gs_key((uint32_t)note, 1);
+            if (gs.p[P_CON] && !(ui.page == PG_SEQ && !gs.srun)) {
+                ui.kchord[i] = 1;
+                cd_key((int)i, 1);
+            } else
+                gs_key((uint32_t)note, 1);
         } else if (!on && ui.keys_down[i]) {
-            gs_key(ui.keys_down[i], 0);
+            if (ui.kchord[i]) {
+                ui.kchord[i] = 0;
+                cd_key((int)i, 0);
+            } else
+                gs_key(ui.keys_down[i], 0);
             ui.keys_down[i] = 0;
         }
     }
@@ -596,7 +626,14 @@ static void ui_input(uint32_t now)
             uint32_t lv = 0;
             if (ui.keys_down[i])
                 lv = 3;
-            else if (gs.acur == note || gs_has((uint32_t)note))
+            else if (gs.p[P_CON]) {                                  /* the chord keys: the buttons that count, the roots in the key's own note */
+                int v, r = cd_role((int)i, gs.p[P_CLAY], &v);
+                cd_prepare();
+                if (r == 1 && (cd_set(gs.p[P_CLAY]) >> v) & 1u)
+                    lv = 2;
+                else if (r == 2 && v % (int)cd.m == 0)
+                    lv = 1;
+            } else if (gs.acur == note || gs_has((uint32_t)note))
                 lv = 2;
             else if (i % 12u == 0u)
                 lv = 1;
@@ -1070,6 +1107,83 @@ static void vz_seq(uint32_t now)
     fb_text_r(VX + VW - 4, VY + 74, b, C_O6);
 }
 
+/* the chords page: the key and scale at the top left, the chord you are playing at the top right, a chip for each degree of the key
+ * with the chord that belongs to it, and a piano under it all: the notes of the key marked (the key's own note red), the chord's
+ * notes lit. The piano starts at the lowest key and follows the octave. */
+static void vz_chord(uint32_t now)
+{
+    static const char *const RN[8] = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII"};
+    int i, nchip, cw, lo = 48 + 12 * gs.oct, on = gs.p[P_CON];
+    char b[24], *p;
+    (void)now;
+    cd_prepare();
+    fb_rect(VX, VY, VW, VH, C_K1);
+    for (i = 0; i < 4; i++)
+        fb_rect(VX, VY + i * 3, VW, 3, (uint8_t)(C_B0 + i));
+    /* the key, the scale, the layout */
+    p = ui_str(b, CD_NOTE[gs.p[P_CKEY] % 12]);
+    p = ui_str(p, " ");
+    p = ui_str(p, CD_SCNAME[gs.p[P_CSCL] % CD_NSC]);
+    fb_text(VX + 6, VY + 3, b, C_O6);
+    p = ui_str(b, CD_LAYNAME[gs.p[P_CLAY] & 3]);
+    p = ui_str(p, on ? "  ON" : "  OFF");
+    fb_text(VX + 6, VY + 16, b, on ? C_INK : C_INK2);
+    /* the chord */
+    if (cd.sounding || cd.nshown)
+        fb_text2_c(VX + 158, VY + 5, cd.name, cd.sounding ? C_HOT : C_O4, 0);
+    else
+        fb_text_c(VX + 158, VY + 9, on ? "PLAY A KEY" : "CHORDS OFF", C_S4);
+    /* a chip a degree */
+    nchip = cd.m > 8 ? 0 : (int)cd.m;
+    cw = nchip ? (VW - 8) / nchip : 0;
+    if (nchip > 7)
+        cw = 26;
+    for (i = 0; i < nchip; i++) {
+        uint8_t nt[8], iv[8];
+        int n, rpc, x = VX + 4 + i * cw, lit = cd.sounding && cd.sdeg >= 0 && cd.sdeg % (int)cd.m == i;
+        n = cd_build(i, (uint16_t)(1u << CB_AUTO), nt, &rpc, iv);
+        cd_name(b, rpc, iv, n);
+        fb_rect(x, VY + 29, cw - 2, 24, lit ? C_O3 : C_K2);
+        fb_frame(x, VY + 29, cw - 2, 24, lit ? C_HOT : (i == 0 ? C_O5 : C_S1));
+        fb_text_c(x + (cw - 2) / 2, VY + 30, nchip > 7 ? RN[i] : RN[i], lit ? C_BG : (i == 0 ? C_O6 : C_INK2));
+        fb_text_c(x + (cw - 2) / 2, VY + 41, b, lit ? C_BG : C_INK);
+    }
+    if (!nchip)
+        fb_text_c(VX + VW / 2, VY + 36, "EVERY NOTE", C_S4);
+    /* the piano: three octaves from the lowest key */
+    {
+        int px = VX + 6, py = VY + 57, wn = 0, oc, pc;
+        for (oc = 0; oc < 3; oc++)
+            for (pc = 0; pc < 12; pc++) {
+                int note = lo + oc * 12 + pc, lit = 0, rel = (note - lo - (int)gs.p[P_CKEY] % 12 + 120) % 12;
+                if (cd_black(pc))
+                    continue;
+                for (i = 0; i < cd.nshown; i++)
+                    if (cd.shown[i] == note)
+                        lit = 1;
+                fb_rect(px + wn * 10, py, 9, 27, lit ? (cd.sounding ? C_HOT : C_O4) : C_S3);
+                if (cd_in_scale(rel))
+                    fb_rect(px + wn * 10 + 3, py + 21, 3, 3, rel == 0 ? C_R3 : C_O5);
+                wn++;
+            }
+        wn = 0;
+        for (oc = 0; oc < 3; oc++)
+            for (pc = 0; pc < 12; pc++) {
+                int note = lo + oc * 12 + pc, lit = 0, rel = (note - lo - (int)gs.p[P_CKEY] % 12 + 120) % 12;
+                if (!cd_black(pc)) {
+                    wn++;
+                    continue;
+                }
+                for (i = 0; i < cd.nshown; i++)
+                    if (cd.shown[i] == note)
+                        lit = 1;
+                fb_rect(px + wn * 10 - 3, py, 6, 16, lit ? (cd.sounding ? C_R3 : C_O2) : C_K1);
+                if (cd_in_scale(rel))
+                    fb_rect(px + wn * 10 - 1, py + 12, 2, 2, C_O5);
+            }
+    }
+}
+
 /* the glitch: a cube of eight shards that comes apart as the kind says, beside what the kind does to a wave */
 static void vz_glitch(uint32_t now)
 {
@@ -1246,10 +1360,10 @@ static void ui_status(uint32_t now)
     p = ui_num(p, gs.oct);
     fb_text_r(234, 121, b, C_O6);
     {
-        static const char *const LN[4] = {"ARP", "GATE", "HOLD", "GLITCH"};
+        static const char *const LN[4] = {"ARP", "CHORD", "HOLD", "GLITCH"};
         uint8_t on[4];
         on[0] = gs.p[P_AON] || gs.srun;
-        on[1] = gs.p[P_GDEP] && gs.p[P_GPAT] != 13u;
+        on[1] = gs.p[P_CON];
         on[2] = gs.hold;
         on[3] = gl.on;
         for (i = 0; i < 4; i++) {
@@ -1360,6 +1474,9 @@ static void ui_draw(uint32_t now)
     case PG_SEQ3:
         vz_seq(now);
         break;
+    case PG_CHORD:
+        vz_chord(now);
+        break;
     default:
         vz_save(now);
         break;
@@ -1368,7 +1485,7 @@ static void ui_draw(uint32_t now)
     ui_screw(10, 110);
     ui_screw(227, 110);
     /* the page's name in the window's corner, the level at its right */
-    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE)
+    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE && ui.page != PG_CHORD)
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
     if (ui.page == PG_HOME || ui.page == PG_OSC)
         fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
@@ -1457,7 +1574,7 @@ static void ui_draw(uint32_t now)
     }
     if (ui.toast_t && now - ui.toast_t < 1200u) {
         int w = fb_text_w(ui.toast) + 20;
-        int ty = (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) ? 54 : 92;
+        int ty = (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) ? 54 : ui.page == PG_CHORD ? 40 : 92;
         fb_rbox(120 - w / 2, ty, w, 20, 5, C_K1);
         fb_frame(120 - w / 2, ty, w, 20, C_O5);
         fb_text_c(120, ty + 5, ui.toast, C_HOT);
