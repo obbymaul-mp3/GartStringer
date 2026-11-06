@@ -24,6 +24,7 @@ static uint8_t sk_safe;
 static uint32_t sk_stage __attribute__((section(".noinit")));      /* the boot's breadcrumb: survives a crash */
 #define CR_STAGE_SET(n) (sk_stage = (n))
 static volatile uint8_t sk_hush;          /* 1: the output is silent (a slot is being written) */
+static volatile uint8_t sk_in_audio;      /* the audio interrupt is rendering: TIMER5 nests in it and leaves the USB poll to the next tick */
 static uint8_t sk_live;                   /* interrupts are on (the flash code must give them back only then) */
 #define SK_STORE_OFF 913408u              /* the top sector of the data area, just under the update loader's staging (decimal: the lint reads hex as an address) */
 extern void isr_timer5(void);
@@ -32,7 +33,7 @@ extern void isr_alnk0(void);
 /* ---------------------------------------------------------------- interrupts --- */
 void fm1_timer5_irq(void)
 {
-    static uint32_t last, acc;
+    static uint32_t last, acc, sub, owed;
     uint32_t t0 = fm1_ticks();
     fm1_timer5_ack();
     fm1_input_tick();
@@ -42,6 +43,14 @@ void fm1_timer5_irq(void)
         acc -= 1000u * FM1_TICKS_PER_US;
         fm1_ms++;
     }
+    if (sub % 5u == 0u)
+        owed = 1;                                      /* 2 kHz: all USB SIE traffic lives here (usb.c) */
+    if (++sub == 10u)
+        sub = 0;
+    if (sk_in_audio || !owed)
+        return;                                        /* nested in a render: the next tick polls (owed stays) */
+    owed = 0;
+    usb_poll();
 }
 
 void fm1_alnk0_irq(void)
@@ -49,6 +58,7 @@ void fm1_alnk0_irq(void)
     uint8_t p = fm1_audio_pending();
     uint32_t t0 = fm1_ticks();
     fm1_audio_ack_aux(p);
+    sk_in_audio = 1;
     if (p & FM1_AUDIO_HALF) {
         uint32_t half, b, i, us, load;
         int32_t *o;
@@ -72,6 +82,7 @@ void fm1_alnk0_irq(void)
         if (fm1_audio_free_half() != half)
             sk_late++;
     }
+    sk_in_audio = 0;
 }
 
 /* ------------------------------------------------------------------ the panel --- */
@@ -193,6 +204,77 @@ static void fm1_fault(const fm1_crash_t *c)
     fm1_reboot();
 }
 
+/* ----------------------------------------------------- the update over USB (ota.c's hooks) --- */
+/* The installer page talks USB-MIDI SysEx to the running instrument (usb.c, ota.c): a handshake answers the package
+ * identity; the upgrade command pulls the package, stages its update loader in the OTA area and restarts into it.
+ * The flash is off the bus while it erases and writes, so the sound is hushed first (as for a saved slot). */
+static uint32_t ota_now_ms(void) { return fm1_ms; }
+static void ota_idle(void) { fm1_wdt_feed(); }
+static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA, OTA_AREA + OTA_AREA_LEN); }
+static int ota_erase(uint32_t off)
+{
+    uint32_t took = 0, t;
+    if (!ota_in_area(off, 0x1000u) || (off & 0xFFFu))
+        return -8;
+    if (sk_live) {
+        sk_hush = 1;
+        t = fm1_ms;
+        while (fm1_ms - t < 20u)
+            ;
+    }
+    return fl_erase4k(off, &took);
+}
+static int ota_prog(uint32_t off, const void *p, uint32_t n)
+{
+    if (!ota_in_area(off, n))
+        return -8;
+    return fl_write(off, (const uint8_t *)p, n);
+}
+static int ota_fread(uint32_t off, void *p, uint32_t n)
+{
+    int rc;
+    uint32_t f = irq_save();
+    rc = FL_FAR(fl_read_ram)(off, (uint8_t *)p, n);
+    if (sk_live)
+        irq_restore(f);
+    return rc ? -1 : 0;
+}
+static void ota_show(uint32_t step, int32_t code)
+{
+    static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
+    char b[16];
+    uint32_t k = 0, v;
+    fb_theme_snap(0);
+    fb_fill(C_BG);
+    fb_text_c(120, 92, "UPDATE", C_INK);
+    if (step < 9u) {
+        fb_text_c(120, 116, STEP[step < 6u ? step : 0], C_HOT);
+        sk_present();
+        return;
+    }
+    if (code == 1) {
+        fb_text_c(120, 116, "DRY RUN OK", C_HOT);
+    } else {
+        v = (uint32_t)-code;
+        b[k++] = 'F'; b[k++] = 'A'; b[k++] = 'I'; b[k++] = 'L'; b[k++] = 'E'; b[k++] = 'D'; b[k++] = ' '; b[k++] = '-';
+        if (v >= 10u)
+            b[k++] = (char)('0' + v / 10u % 10u);
+        b[k++] = (char)('0' + v % 10u);
+        b[k] = 0;
+        fb_text_c(120, 116, b, C_HOT);
+    }
+    sk_present();
+    fm1_delay_ms(1500);
+}
+static void ota_commit(const uint8_t *parm)
+{
+    fm1_audio_stop();
+    bootguard_intentional(&bootguard);                 /* an intentional reset: not a failed boot */
+    usb_detach();
+    fm1_delay_ms(30);
+    fm1_enter_update(parm);                            /* the record into RAM, a core reset (fm1_sys.h): never returns */
+}
+
 /* --------------------------------------------------------------- MASTER, update --- */
 static int32_t sk_master_knob = 512 * 16;
 static void sk_master_apply(void) { sk_f.master = ((uint32_t)(sk_master_knob / 16) * (uint32_t)(sk_master_knob / 16)) >> 8; }
@@ -268,6 +350,7 @@ static void sk_main(void)
     CR_STAGE_SET(BS_SOUNDS);
     ui_init(0);
     ui_store_load();                       /* (interrupts are still off: the flash is read bare) */
+    ota_boot_cleanup();                    /* the staging area after an update: our loader stays for the boot stub's rescue */
     if (!sk_safe)
         ui_intro_start();                  /* the opening: the logo, the sound fading in */
     CR_STAGE_SET(BS_AUDIO);
@@ -279,6 +362,7 @@ static void sk_main(void)
     }
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);
     CR_STAGE_SET(BS_IRQ);
+    usb_start();                           /* the USB-MIDI interface, polled from TIMER5 (the installer page finds the unit through it) */
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();
@@ -295,6 +379,25 @@ static void sk_main(void)
         CR_STAGE_SET(BS_LOOP_INPUT);
         ui_input(m);
         left = sk_update_poll(ui.held);
+        usb_retry(fm1_ms);
+        ota_service();                                  /* the installer page's handshake */
+        if (usb.ota_req) {                              /* its upgrade command: pull the package, stage the loader, restart */
+            usb.ota_req = 0;
+            sk_hush = 1;
+            ota_session();                              /* returns only if nothing was committed */
+            sk_hush = 0;
+        }
+        if (usb.uboot_req) {                            /* the host's soft key: the chip's own USB boot */
+            fm1_audio_stop();
+            fb_theme_snap(0);
+            fb_fill(C_BG);
+            fb_text_c(120, 108, "UPDATE MODE", C_INK);
+            sk_present();
+            fm1_delay_ms(30);
+            usb_detach();
+            bootguard_intentional(&bootguard);
+            fm1_enter_uboot();
+        }
         CR_STAGE_SET(BS_LOOP_DRAW);
         ui_draw(m);
         if (left) {

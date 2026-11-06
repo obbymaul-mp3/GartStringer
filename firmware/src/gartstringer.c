@@ -17,6 +17,8 @@
 #define SK_VERSION "GARTSTRINGER"
 #endif
 #define SK_POOL __attribute__((section(".pool")))
+#define FELUCCA_OTA 1                    /* usb.c / ota.c: the installer page can update the unit from the running instrument */
+#define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* a ring slot is stored before its index moves */
 
 #include <stdint.h>
 #include "fm1_time.h"
@@ -33,6 +35,8 @@
 
 #include "libc.c"
 #include "lcd.c"
+#include "usb.c"
+#include "ota.c"
 
 #include "gs_synth.c"
 #include "gs_fx.c"
