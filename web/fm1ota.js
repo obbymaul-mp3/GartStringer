@@ -85,6 +85,7 @@ export function classifyFirmware(identity, info) {
   if (num < 900) return { verdict: "refuse", kind: "unknown", name: `an unknown firmware (${identity})` };
   if (m[3] === "930" && !v) return { verdict: "allow", kind: "gartstringer", name: OWN_NAME };      // an update of GartStringer
   if (/^gartstringer\b/i.test(v)) return { verdict: "allow", kind: "gartstringer", name: v };
+  if (/^skylynne\b/i.test(v)) return { verdict: "allow", kind: "skylynne", name: v };            // our own, same platform and flash layout
   if (/^coralflower\b/i.test(v)) return { verdict: "allow", kind: "coralflower", name: v };
   if (/^choralroot\b/i.test(v)) return { verdict: "allow", kind: "choralroot", name: v };
   if (/^melodee\b/i.test(v)) return { verdict: "allow", kind: "melodee", name: `Melodee (${v.slice(8)})` };
