@@ -633,7 +633,7 @@ static void ui_input(uint32_t now)
         for (i = 0; i < 27u; i++) {
             int note = 48 + 12 * gs.oct + (int)i;
             uint32_t lv = 0;
-            if (ui.keys_down[i])
+            if (ui.keys_down[i] || (gs.srun && gs.snote >= 0 && gs.snote == note))   /* a key you press, or the step the sequence is playing */
                 lv = 3;
             else if (gs.p[P_CON]) {                                  /* the chord keys: the buttons that count, the roots in the key's own note */
                 int v, r = cd_role((int)i, gs.p[P_CLAY], &v);
@@ -1377,6 +1377,25 @@ static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int a
     }
 }
 
+/* the battery, top right: a cell with up to four bars. sk_batt is the smoothed ADC reading (0 = not read yet); the divider is
+ * assumed to be half of the cell on a 3.3 V reference, so 3.3 V (empty) is about 511 and 4.2 V (full) about 651. When it is low the
+ * outline blinks; above full (charging) a bolt-bar shows instead. */
+static uint16_t sk_batt;
+static void ui_battery(int x, int y)
+{
+    int lvl, i;
+    uint8_t c;
+    if (!sk_batt)
+        return;
+    lvl = ((int)sk_batt - 511) * 4 / (651 - 511 + 1);
+    lvl = ui_clamp(lvl + (lvl >= 0 ? 1 : 0), 0, 4);
+    c = lvl <= 1 ? C_R3 : C_O5;
+    fb_frame(x, y, 20, 10, c);
+    fb_rect(x + 20, y + 3, 2, 4, c);
+    for (i = 0; i < lvl; i++)
+        fb_rect(x + 2 + i * 4, y + 2, 3, 6, lvl <= 1 ? C_R3 : C_HOT);
+}
+
 static void ui_header(uint32_t now)
 {
     char b[24], *p;
@@ -1390,6 +1409,7 @@ static void ui_header(uint32_t now)
     (void)b;
     (void)p;
     (void)now;
+    ui_battery(204, 8);
 }
 
 static void ui_status(uint32_t now)
@@ -1480,9 +1500,18 @@ static void ui_draw(uint32_t now)
             g3_draw(&G3_ICO, 0, 0, 0, 9, 9, 9, a / 5, a / 3, 0, C_O0, 8, 1, C_O6);
             g3_draw(&G3_CUBE, 0, 0, 0, 14, 14, 14, a / 7, -a / 4, 0, 255, 0, 0, C_S3);
             if (lv > 0) {
-                fb_text3_c(123, 72, "GARTSTRING", (uint8_t)(C_B3), 0);              /* a drop shadow, a cyan edge, then the neon */
-                fb_text3_c(121, 70, "GARTSTRING", (uint8_t)(C_GRID2), 0);
-                fb_text3_c(120, 69, "GARTSTRING", (uint8_t)(C_O1 + lv), 0);
+                static const char *const TL[2] = {"GART", "STRINGER"};
+                int li;
+                for (li = 0; li < 2; li++) {                               /* a drop shadow, a cyan edge, then the neon */
+                    fb_text3_c(123, 36 + li * 44, TL[li], (uint8_t)(C_B3), 0);
+                    fb_text3_c(121, 34 + li * 44, TL[li], (uint8_t)(C_GRID2), 0);
+                    fb_text3_c(120, 33 + li * 44, TL[li], (uint8_t)(C_O1 + lv), 0);
+                }
+            }
+            if (sk_batt) {                                             /* the raw battery reading, for checking the scale */
+                char rb[8];
+                ui_num(rb, sk_batt);
+                fb_text_r(236, 228, rb, C_S1);
             }
             if (a > 1200 && lv > 0)
             {

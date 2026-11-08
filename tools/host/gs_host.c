@@ -124,6 +124,7 @@ int main(int argc, char **argv)
 {
     int a;
     ui_init(0);
+    sk_batt = 600;
     ui_store_load();
     for (a = 1; a < argc; a++) {
         char *s = argv[a];

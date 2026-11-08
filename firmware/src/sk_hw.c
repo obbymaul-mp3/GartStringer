@@ -376,6 +376,15 @@ static void sk_main(void)
         if (fm1_ms > SK_BG_SETTLE_MS && bootguard.pending)
             bootguard_settled(&bootguard);
         sk_master_poll();
+        {                                               /* the battery, once in a while, smoothed */
+            static uint32_t bt;
+            if (fm1_ms - bt >= 1000u || !sk_batt) {
+                int32_t a = fm1_adc_read(FM1_ADC_BATT);
+                bt = fm1_ms;
+                if (a > 0)
+                    sk_batt = (uint16_t)(sk_batt ? ((int)sk_batt * 7 + a + 4) / 8 : a);
+            }
+        }
         CR_STAGE_SET(BS_LOOP_INPUT);
         ui_input(m);
         left = sk_update_poll(ui.held);
