@@ -33,13 +33,15 @@ enum {
     C_HOT,                                                     /* a white-hot yellow */
     C_B0, C_B1, C_B2, C_B3, C_B4, C_B5,                        /* the backdrop's glow, dark to warm */
     C_INK, C_INK2,                                             /* text: warm white, warm grey */
-    C_GRID0, C_LED, C_GRID1, C_GRID2, C_DIM, C_DIM2, C_PLATE   /* the scope's grids, a lamp on, dim greys, a plate */
+    C_GRID0, C_LED, C_GRID1, C_GRID2, C_DIM, C_DIM2, C_PLATE,  /* the scope's grids, a lamp on, dim greys, a plate */
+    C_BT0, C_BT1, C_BT2, C_BT3, C_BT4, C_BT5                   /* the battery orb: green, lime, yellow, amber, orange, red (the same in every look) */
 };
+#define FB_NCOL 46u
 
 #define FB_NTHEME 3
 /* three looks of one palette: magenta (the default), cyan (the gate and the arp) and flame (the glitch); only the accent
  * ramp differs */
-static const uint32_t SK_THEME[FB_NTHEME][40] = {
+static const uint32_t SK_THEME[FB_NTHEME][46] = {
     {   /* magenta */
         0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x2A0A48, 0x4A1478,
         0x7A1CA8, 0xB024D0, 0xE030E8, 0xFF58F0, 0xFF90F4, 0xFFC8FA,
@@ -48,6 +50,7 @@ static const uint32_t SK_THEME[FB_NTHEME][40] = {
         0xB8FFFF, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
         0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
         0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
+        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
     {   /* cyan */
         0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x05283A, 0x084860,
@@ -57,6 +60,7 @@ static const uint32_t SK_THEME[FB_NTHEME][40] = {
         0xFFE8FF, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
         0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
         0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
+        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
     {   /* flame */
         0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x3A1204, 0x6A2208,
@@ -66,6 +70,7 @@ static const uint32_t SK_THEME[FB_NTHEME][40] = {
         0xFFF0C0, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
         0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
         0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
+        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
 };
 
@@ -95,7 +100,7 @@ static void fb_theme(uint32_t t)
 {
     uint32_t i;
     const uint32_t *rgb = SK_THEME[t % FB_NTHEME];
-    for (i = 0; i < 40u; i++) {
+    for (i = 0; i < FB_NCOL; i++) {
         uint32_t k;
         for (k = 0; k < 3u; k++) {
             int c = (int)((rgb[i] >> (16 - 8 * k)) & 255u);
@@ -132,7 +137,7 @@ static void fb_fade(void)
     uint32_t i, k, moving = 0;
     if (!fb_fade_on)
         return;
-    for (i = 0; i < 40u; i++) {
+    for (i = 0; i < FB_NCOL; i++) {
         for (k = 0; k < 3u; k++) {
             int d = (int)fb_tgt[i][k] - (int)fb_cur[i][k];
             if (d) {

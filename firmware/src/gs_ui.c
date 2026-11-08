@@ -1046,6 +1046,36 @@ static int ui_step_note(int s) { return (int)gs.sroot + SP_NOTE(gs.sp[gs.pcur][s
  * with the playhead running along it, the note's name over the step you are on, and under that a map of the whole pattern: the bar in view
  * framed, the playhead lit, the steps past the length dim. While it runs the view follows the playhead; while you record, the steps you
  * write flash as they land, and a bar of count-in numbers comes first. */
+/* the key the pattern is in: every note's pitch class is counted and the twenty-four major and minor scales are scored on how many
+ * notes fall inside them, the tonic and the fifth weighing more, and the third telling major from its relative minor.
+ * Returns the tonic 0..11 and sets *minor, or -1 when there are fewer than three different notes to go on. */
+static int ui_seq_key(int pc, int *minor)
+{
+    static const uint8_t MAJ[12] = {1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1}, MIN[12] = {1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0};
+    int cnt[12] = {0}, i, t, m, best = -1, bs = -1, distinct = 0, len = gs.spl[pc];
+    for (i = 0; i < len; i++)
+        if (SP_ON(gs.sp[pc][i]))
+            cnt[(gs.sroot + SP_NOTE(gs.sp[pc][i]) - 12 + 1200) % 12]++;
+    for (i = 0; i < 12; i++)
+        distinct += cnt[i] > 0;
+    if (distinct < 3)
+        return -1;
+    for (t = 0; t < 12; t++)
+        for (m = 0; m < 2; m++) {
+            const uint8_t *sc = m ? MIN : MAJ;
+            int in = 0, sco;
+            for (i = 0; i < 12; i++)
+                in += sc[(i - t + 12) % 12] ? cnt[i] : 0;
+            sco = 8 * in + 3 * cnt[t] + cnt[(t + 7) % 12] + 2 * cnt[(t + (m ? 3 : 4)) % 12];
+            if (sco > bs) {
+                bs = sco;
+                best = t;
+                *minor = m;
+            }
+        }
+    return best;
+}
+
 static void vz_seq(uint32_t now)
 {
     int i, pc = gs.pcur, len = gs.spl[pc], run = gs.srun, edit = ui.page != PG_SEQ2;
@@ -1096,6 +1126,19 @@ static void vz_seq(uint32_t now)
         fb_text_r(VX + VW - 6, VY + 5, b, gs.srec ? C_R3 : (run ? C_HOT : C_INK));
         if (gs.srec && ((now >> 8) & 1u))
             fb_rect(VX + VW - 64, VY + 7, 4, 4, C_R3);
+    }
+    {                                                                       /* the key the notes are in */
+        int mn = 0, k = ui_seq_key(pc, &mn);
+        char *q = ui_str(b, "KEY ");
+        if (k < 0)
+            q = ui_str(q, "--");
+        else {
+            q = ui_str(q, CD_NOTE[k]);
+            q = ui_str(q, mn ? " MIN" : " MAJ");
+        }
+        fb_rect(VX + VW - 6 - 74, VY + 17, 74, 11, C_K1);
+        fb_frame(VX + VW - 6 - 74, VY + 17, 74, 11, k < 0 ? C_S1 : C_O5);
+        fb_text_c(VX + VW - 6 - 37, VY + 18, b, k < 0 ? C_INK2 : C_O6);
     }
     if (gs.scount) {                                                        /* the count-in */
         char d[2];
@@ -1377,23 +1420,40 @@ static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int a
     }
 }
 
-/* the battery, top right: a cell with up to four bars. sk_batt is the smoothed ADC reading (0 = not read yet); the divider is
- * assumed to be half of the cell on a 3.3 V reference, so 3.3 V (empty) is about 511 and 4.2 V (full) about 651. When it is low the
- * outline blinks; above full (charging) a bolt-bar shows instead. */
+/* the battery, top right: a glass orb filled to the charge, green when full, then lime, yellow, amber and orange as it drains, and
+ * red and blinking when it is nearly gone. sk_batt is the smoothed ADC reading (0 = not read yet); the divider is assumed to be
+ * half of the cell on a 3.3 V reference, so 3.3 V (empty) is about 511 and 4.2 V (full) about 651. */
 static uint16_t sk_batt;
-static void ui_battery(int x, int y)
+static void ui_battery(int cx, int cy, uint32_t now)
 {
-    int lvl, i;
-    uint8_t c;
+    int pct, h, dx, dy, top;
+    uint8_t hue;
     if (!sk_batt)
         return;
-    lvl = ((int)sk_batt - 511) * 4 / (651 - 511 + 1);
-    lvl = ui_clamp(lvl + (lvl >= 0 ? 1 : 0), 0, 4);
-    c = lvl <= 1 ? C_R3 : C_O5;
-    fb_frame(x, y, 20, 10, c);
-    fb_rect(x + 20, y + 3, 2, 4, c);
-    for (i = 0; i < lvl; i++)
-        fb_rect(x + 2 + i * 4, y + 2, 3, 6, lvl <= 1 ? C_R3 : C_HOT);
+    pct = ui_clamp(((int)sk_batt - 511) * 100 / (651 - 511), 0, 100);
+    h = 5 + pct * 12 / 100;                                                 /* the liquid's height in the 17-pixel orb: never quite empty */
+    hue = pct > 75 ? C_BT0 : pct > 55 ? C_BT1 : pct > 38 ? C_BT2 : pct > 22 ? C_BT3 : pct > 10 ? C_BT4 : C_BT5;
+    if (pct <= 10 && ((now >> 8) & 1u))                                     /* nearly gone: the glow blinks */
+        hue = C_K3;
+    top = cy + 8 - h;
+    for (dy = -8; dy <= 8; dy++)
+        for (dx = -8; dx <= 8; dx++) {
+            int d2 = dx * dx + dy * dy, x = cx + dx, y = cy + dy, shade = dx + dy > 4, chk = (x + y) & 1;
+            uint8_t c;
+            if (d2 > 70)
+                continue;
+            if (d2 > 52)
+                c = (dx + dy < -2) ? C_S5 : (dx + dy > 4 ? C_S1 : C_S3);                /* the glass rim, lit from the top left */
+            else if (y >= top)
+                c = (y == top && d2 < 40) ? C_HOT : (shade && chk ? C_K2 : (dx + dy > 8 ? C_K2 : hue));   /* the liquid, its surface bright, the far side in shadow */
+            else
+                c = shade && chk ? C_K1 : C_K2;                                           /* empty glass */
+            fb_pset(x, y, c);
+        }
+    fb_pset(cx - 4, cy - 4, C_INK);                                          /* the glint */
+    fb_pset(cx - 3, cy - 5, C_INK);
+    fb_pset(cx - 5, cy - 3, C_INK);
+    fb_pset(cx - 4, cy - 3, C_S6);
 }
 
 static void ui_header(uint32_t now)
@@ -1408,8 +1468,7 @@ static void ui_header(uint32_t now)
     fb_text2_c(111, 1, "GARTSTRINGER", C_HOT, 0);
     (void)b;
     (void)p;
-    (void)now;
-    ui_battery(204, 8);
+    ui_battery(216, 12, now);
 }
 
 static void ui_status(uint32_t now)
