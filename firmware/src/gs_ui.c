@@ -264,6 +264,47 @@ static void sv_unpack(const uint8_t *d)
     gs.snote = -1;
     gs.sslide = 0;
 }
+/* 0.6.0 and 0.6.1 kept six slots, each with four patterns, in one sector ("GST2"). While that sector is still in flash, its slots are
+ * read from it and carried over to the new layout: slots 1-3 into sector 0 and 4-6 into sector 1. Sector 1 is written before sector 0
+ * is touched, so a save never destroys the old slots until the carried-over copy of the rest is safe. */
+#define SV_OLD_SLOT (4 + P_N + 4 + 4 * GS_NS)
+#define SV_OLD_MAGIC 0x32545347u
+static struct {
+    uint32_t magic;
+    uint8_t slot[6][SV_OLD_SLOT];
+    uint32_t sum;
+} sv_old;
+static uint8_t sv_old_ok;                                  /* sector 0 still holds the old store */
+static void sv_old_load(void)
+{
+    const uint8_t *p = (const uint8_t *)sv_old.slot;
+    uint32_t i, h = 0x811C9DC5u;
+    sv_old_ok = 0;
+    if (sk_store_read(0, &sv_old, sizeof sv_old) != 0 || sv_old.magic != SV_OLD_MAGIC)
+        return;
+    for (i = 0; i < sizeof sv_old.slot; i++)
+        h = (h ^ p[i]) * 16777619u;
+    sv_old_ok = h == sv_old.sum;
+}
+static void sv_from_old(uint32_t sec)                      /* sector sec (0 or 1) of the new layout, made from the old slots */
+{
+    uint32_t i, k, j;
+    for (i = 0; i < SV_PER; i++) {
+        const uint8_t *o = sv_old.slot[sec * SV_PER + i];
+        uint8_t *d = sv.slot[i];
+        if (!o[0])
+            continue;
+        for (k = 0; k < 4u + P_N; k++)                      /* the header and every parameter */
+            d[k] = o[k];
+        for (j = 0; j < GS_NP; j++) {                       /* patterns A-D as they were, E-H empty */
+            d[4u + P_N + j] = j < 4u ? o[4u + P_N + j] : 16;
+            for (k = 0; k < GS_NS; k++)
+                d[4u + P_N + GS_NP + j * GS_NS + k] = j < 4u ? o[4u + P_N + 4u + j * GS_NS + k] : 0;
+        }
+    }
+    sv.magic = SV_MAGIC;
+    sv.sum = sv_sum();
+}
 static void ui_sv_sec(uint32_t sec)                    /* bring a sector in (an empty one if it was never written or is damaged) */
 {
     uint32_t i;
@@ -272,6 +313,8 @@ static void ui_sv_sec(uint32_t sec)                    /* bring a sector in (an 
     if (sk_store_read(sec, &sv, sizeof sv) != 0 || sv.magic != SV_MAGIC || sv.sum != sv_sum()) {
         for (i = 0; i < sizeof sv; i++)
             ((uint8_t *)&sv)[i] = 0;
+        if (sv_old_ok && sec < 2u)
+            sv_from_old(sec);
     }
     sv_sec = (uint8_t)sec;
 }
@@ -279,6 +322,7 @@ static void ui_store_load(void)
 {
     uint32_t sec, i;
     sv_full = 0;
+    sv_old_load();
     for (sec = 0; sec < SV_SECT; sec++) {
         sv_sec = 255;
         ui_sv_sec(sec);
@@ -291,6 +335,15 @@ static void ui_do_save(uint32_t now)
 {
     uint32_t sec = ui.slot / SV_PER, bit = 1u << ui.slot;
     uint8_t *d;
+    if (ui.act != 0u && sec == 0u && sv_old_ok) {          /* the old store is about to be overwritten: carry the rest over first */
+        sv_sec = 255;
+        ui_sv_sec(1);
+        if (sk_store_write(1, &sv, sizeof sv) != 0) {
+            ui_toast("FAILED", now);
+            return;
+        }
+        sv_sec = 255;
+    }
     ui_sv_sec(sec);
     d = sv.slot[ui.slot % SV_PER];
     if (ui.act == 0u) {
@@ -313,6 +366,8 @@ static void ui_do_save(uint32_t now)
     sv.magic = SV_MAGIC;
     sv.sum = sv_sum();
     if (sk_store_write(sec, &sv, sizeof sv) == 0) {
+        if (sec == 0u)
+            sv_old_ok = 0;
         sv_full = ui.act == 1u ? sv_full | bit : sv_full & ~bit;
         ui_toast(ui.act == 1u ? "SAVED" : "CLEARED", now);
     } else
