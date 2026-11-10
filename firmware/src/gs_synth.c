@@ -21,7 +21,7 @@
 #define GS_NV 6                          /* voices */
 #define GS_NPRE 32                       /* factory patches */
 #define GS_NS 128                        /* the longest pattern: 128 steps */
-#define GS_NP 4                          /* patterns A..D */
+#define GS_NP 8                          /* patterns A..H */
 
 /* the patch: every sound parameter is one byte, 0..127 unless it is a choice */
 enum {

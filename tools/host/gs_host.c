@@ -29,10 +29,18 @@ static void sk_lcd(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_
 }
 static void sk_pump(void) {}
 /* the saved slots: a file, so that a second run can load what the first saved (SK_STORE=path) */
-static int sk_store_read(void *dst, uint32_t n)
+static FILE *store_open(uint32_t sec, const char *mode)
 {
     const char *p = getenv("SK_STORE");
-    FILE *f = p ? fopen(p, "rb") : NULL;
+    char path[512];
+    if (!p)
+        return NULL;
+    snprintf(path, sizeof path, "%s.%u", p, (unsigned)sec);
+    return fopen(path, mode);
+}
+static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
+{
+    FILE *f = store_open(sec, "rb");
     size_t got;
     if (!f)
         return -1;
@@ -40,10 +48,9 @@ static int sk_store_read(void *dst, uint32_t n)
     fclose(f);
     return got == n ? 0 : -1;
 }
-static int sk_store_write(const void *src, uint32_t n)
+static int sk_store_write(uint32_t sec, const void *src, uint32_t n)
 {
-    const char *p = getenv("SK_STORE");
-    FILE *f = p ? fopen(p, "wb") : NULL;
+    FILE *f = store_open(sec, "wb");
     if (!f)
         return -1;
     fwrite(src, 1, n, f);

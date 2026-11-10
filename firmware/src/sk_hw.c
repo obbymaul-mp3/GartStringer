@@ -126,21 +126,22 @@ static void sk_led_btn(uint32_t label, uint32_t level) { sk_led_set(SK_BTN_ID[la
 static void sk_led_key(uint32_t n, uint32_t level) { sk_led_set(14u + n, level); }
 
 /* ---------------------------------------------------------------- the saved slots --- */
-/* One 4 KB sector of the SPI flash holds the eight slots (the whole struct is rewritten at every save). The flash is off
+/* Six 4 KB sectors of the SPI flash hold the eighteen slots, three to a sector (a save rewrites only its own sector). The flash is off
  * the bus while it erases (about 50 ms, 400 at most) and the interrupts are off with it, so the output is made silent
  * first and the audio gets a few halves to run out on zeros. */
 static uint8_t sk_chk[sizeof sv];
-static int sk_store_read(void *dst, uint32_t n)
+#define SK_SEC(s) (SK_STORE_OFF - (s) * 4096u)               /* sector s of the slots: the first at the top, the rest stacked down under it */
+static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
 {
     int rc;
     uint32_t f = irq_save();
-    rc = FL_FAR(fl_read_ram)(SK_STORE_OFF, (uint8_t *)dst, n);
+    rc = FL_FAR(fl_read_ram)(SK_SEC(sec), (uint8_t *)dst, n);
     if (sk_live)
         irq_restore(f);
     return rc ? -1 : 0;
 }
 
-static int sk_store_write(const void *src, uint32_t n)
+static int sk_store_write(uint32_t sec, const void *src, uint32_t n)
 {
     uint32_t took = 0, t, i;
     int rc;
@@ -151,13 +152,13 @@ static int sk_store_write(const void *src, uint32_t n)
     while (fm1_ms - t < 20u)
         ;
     fm1_wdt_feed();
-    rc = fl_erase4k(SK_STORE_OFF, &took);
+    rc = fl_erase4k(SK_SEC(sec), &took);
     if (!rc)
-        rc = fl_write(SK_STORE_OFF, (const uint8_t *)src, n);
+        rc = fl_write(SK_SEC(sec), (const uint8_t *)src, n);
     fm1_wdt_feed();
     if (!rc) {
         uint32_t f = irq_save();
-        rc = FL_FAR(fl_read_ram)(SK_STORE_OFF, sk_chk, n);
+        rc = FL_FAR(fl_read_ram)(SK_SEC(sec), sk_chk, n);
         irq_restore(f);
         for (i = 0; !rc && i < n; i++)
             if (sk_chk[i] != ((const uint8_t *)src)[i])

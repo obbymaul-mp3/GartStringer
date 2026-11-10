@@ -30,8 +30,8 @@ static void sk_in_buttons(uint32_t *held, uint32_t *pressed);
 static uint32_t sk_in_keys(uint32_t *held);
 static void sk_led_btn(uint32_t label, uint32_t level);
 static void sk_led_key(uint32_t n, uint32_t level);
-static int sk_store_read(void *dst, uint32_t n);            /* the saved slots: 0 ok */
-static int sk_store_write(const void *src, uint32_t n);
+static int sk_store_read(uint32_t sec, void *dst, uint32_t n);            /* the saved slots, a 4 KB sector at a time: 0 ok */
+static int sk_store_write(uint32_t sec, const void *src, uint32_t n);
 
 /* the audio interrupt's load, % of the time it has (the hardware layer fills these; 0 on a computer) */
 static volatile uint32_t sk_cpu_pct, sk_cpu_max, sk_late;
@@ -83,14 +83,18 @@ static struct {
     uint32_t rec_t;                      /* when */
 } ui;
 
-#define SV_N 6
-#define SV_SLOT (4 + P_N + GS_NP + GS_NP * GS_NS)         /* a slot: the patch's header, every parameter, the four patterns' lengths and steps */
-static struct {
+#define SV_PER 3                                          /* slots to a sector */
+#define SV_SECT 6                                         /* sectors */
+#define SV_N (SV_PER * SV_SECT)                           /* eighteen slots */
+#define SV_SLOT (4 + P_N + GS_NP + GS_NP * GS_NS)         /* a slot: the patch's header, every parameter, the eight patterns' lengths and steps */
+static struct {                                           /* the sector in hand (a save rewrites only its own sector) */
     uint32_t magic;
-    uint8_t slot[SV_N][SV_SLOT];
+    uint8_t slot[SV_PER][SV_SLOT];
     uint32_t sum;
 } sv;
-#define SV_MAGIC 0x32545347u                 /* "GST2" */
+static uint8_t sv_sec = 255;                              /* which sector sv holds */
+static uint32_t sv_full;                                  /* a bit a slot: kept */
+#define SV_MAGIC 0x33545347u                 /* "GST3" */
 
 static void ui_seq_grow(uint32_t now);
 static int ui_clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -260,17 +264,35 @@ static void sv_unpack(const uint8_t *d)
     gs.snote = -1;
     gs.sslide = 0;
 }
-static void ui_store_load(void)
+static void ui_sv_sec(uint32_t sec)                    /* bring a sector in (an empty one if it was never written or is damaged) */
 {
     uint32_t i;
-    if (sk_store_read(&sv, sizeof sv) != 0 || sv.magic != SV_MAGIC || sv.sum != sv_sum()) {
+    if (sv_sec == sec)
+        return;
+    if (sk_store_read(sec, &sv, sizeof sv) != 0 || sv.magic != SV_MAGIC || sv.sum != sv_sum()) {
         for (i = 0; i < sizeof sv; i++)
             ((uint8_t *)&sv)[i] = 0;
+    }
+    sv_sec = (uint8_t)sec;
+}
+static void ui_store_load(void)
+{
+    uint32_t sec, i;
+    sv_full = 0;
+    for (sec = 0; sec < SV_SECT; sec++) {
+        sv_sec = 255;
+        ui_sv_sec(sec);
+        for (i = 0; i < SV_PER; i++)
+            if (sv.slot[i][0])
+                sv_full |= 1u << (sec * SV_PER + i);
     }
 }
 static void ui_do_save(uint32_t now)
 {
-    uint8_t *d = sv.slot[ui.slot];
+    uint32_t sec = ui.slot / SV_PER, bit = 1u << ui.slot;
+    uint8_t *d;
+    ui_sv_sec(sec);
+    d = sv.slot[ui.slot % SV_PER];
     if (ui.act == 0u) {
         if (!d[0])
             ui_toast("EMPTY", now);
@@ -290,7 +312,11 @@ static void ui_do_save(uint32_t now)
     }
     sv.magic = SV_MAGIC;
     sv.sum = sv_sum();
-    ui_toast(sk_store_write(&sv, sizeof sv) == 0 ? (ui.act == 1u ? "SAVED" : "CLEARED") : "FAILED", now);
+    if (sk_store_write(sec, &sv, sizeof sv) == 0) {
+        sv_full = ui.act == 1u ? sv_full | bit : sv_full & ~bit;
+        ui_toast(ui.act == 1u ? "SAVED" : "CLEARED", now);
+    } else
+        ui_toast("FAILED", now);
 }
 
 /* ------------------------------------------------------------------------ input --- */
@@ -364,7 +390,7 @@ static void ui_input(uint32_t now)
     if (pr & (1u << SB_HOME)) {                                     /* HOME, and again: the chords */
         ui.page = ui.page == PG_HOME ? PG_CHORD : PG_HOME;
         if (ui.page == PG_CHORD)
-            ui_toast(gs.p[P_CON] ? "CHORDS ON" : "TURN ALGORITHM: CHORDS ON", now);
+            ui_toast(gs.p[P_CON] ? "CHORDS ON" : "ALGO TURN: CHORDS", now);
     }
     if (pr & (1u << SB_EDIT))
         ui_page_press(PG_OSC, 255);
@@ -386,7 +412,7 @@ static void ui_input(uint32_t now)
         else {
             ui.page = PG_SEQ;
             ui.cur_t = now;
-            ui_toast(gs.srun ? "RUNNING" : "KEYS WRITE  PLAY RUNS", now);
+            ui_toast(gs.srun ? "RUNNING" : "KEYS WRITE STEPS", now);
         }
     }
     if (pr & (1u << SB_GLO))
@@ -432,12 +458,6 @@ static void ui_input(uint32_t now)
         ui_toast(gs.srec ? (gs.srun ? "RECORDING" : "REC ARMED") : "REC OFF", now);
     }
     gl.manual = (uint8_t)(((held >> SB_REC) & 1u) && !(ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3));   /* (the sequencer's pages use REC to record) */
-    if ((pr & ((1u << SB_OCTDN) | (1u << SB_OCTUP))) && (ui.page == PG_SEQ || ui.page == PG_SEQ3)) {   /* on the editing pages OCT jumps a bar */
-        int dir = (pr & (1u << SB_OCTUP)) ? 1 : -1;
-        ui.cur = (uint8_t)ui_clamp((int)ui.cur + 16 * dir, 0, GS_NS - 1);
-        ui.cur_t = now;
-        pr &= ~((1u << SB_OCTDN) | (1u << SB_OCTUP));
-    }
     if (pr & (1u << SB_OCTDN)) {
         if (gs.srun && gs.sroot >= 12u)
             gs.sroot = (uint8_t)(gs.sroot - 12u);
@@ -1103,20 +1123,24 @@ static void vz_seq(uint32_t now)
         else
             g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
     }
-    /* the pattern tabs */
+    /* the pattern tabs: A to H */
     for (i = 0; i < GS_NP; i++) {
-        int x = VX + 6 + i * 30, cur = i == pc, nxt = gs.pnext == i;
+        int x = VX + 5 + i * 15, cur = i == pc, nxt = gs.pnext == i, filled = 0, k;
         char t[2];
         t[0] = (char)('A' + i);
         t[1] = 0;
+        for (k = 0; k < GS_NS && !filled; k++)
+            filled = SP_ON(gs.sp[i][k]);
         if (cur)
-            fb_rect(x, VY + 3, 26, 12, run ? C_HOT : C_O5);
+            fb_rect(x, VY + 3, 13, 12, run ? C_HOT : C_O5);
         else
-            fb_rect(x, VY + 3, 26, 12, C_K1);
-        fb_frame(x, VY + 3, 26, 12, nxt && ((now >> 7) & 1u) ? C_HOT : (cur ? C_O6 : C_S1));
-        if (nxt)
-            fb_frame(x + 1, VY + 4, 24, 10, ((now >> 7) & 1u) ? C_O6 : C_K1);
-        fb_text_c(x + 13, VY + 5, t, cur ? C_K1 : (nxt ? C_HOT : C_INK2));
+            fb_rect(x, VY + 3, 13, 12, C_K1);
+        fb_frame(x, VY + 3, 13, 12, nxt && ((now >> 7) & 1u) ? C_HOT : (cur ? C_O6 : C_S1));
+        if (nxt && ((now >> 7) & 1u))
+            fb_rect(x + 1, VY + 4, 11, 10, C_O3);
+        fb_text_c(x + 7, VY + 5, t, cur ? C_K1 : (nxt ? C_HOT : (filled ? C_O6 : C_INK2)));
+        if (filled && !cur)
+            fb_pset(x + 11, VY + 5, C_O6);                                     /* a pattern with notes in it */
     }
     {                                                                       /* where it is: the step, the length, and what it is doing */
         char *q = ui_str(b, gs.srec ? "REC " : run ? "PLAY " : "STOP ");
@@ -1125,7 +1149,7 @@ static void vz_seq(uint32_t now)
         ui_num(q, len);
         fb_text_r(VX + VW - 6, VY + 5, b, gs.srec ? C_R3 : (run ? C_HOT : C_INK));
         if (gs.srec && ((now >> 8) & 1u))
-            fb_rect(VX + VW - 64, VY + 7, 4, 4, C_R3);
+            fb_rect(VX + VW - 6 - fb_text_w(b) - 7, VY + 7, 4, 4, C_R3);
     }
     {                                                                       /* the key the notes are in */
         int mn = 0, k = ui_seq_key(pc, &mn);
@@ -1136,9 +1160,18 @@ static void vz_seq(uint32_t now)
             q = ui_str(q, CD_NOTE[k]);
             q = ui_str(q, mn ? " MIN" : " MAJ");
         }
-        fb_rect(VX + VW - 6 - 74, VY + 17, 74, 11, C_K1);
-        fb_frame(VX + VW - 6 - 74, VY + 17, 74, 11, k < 0 ? C_S1 : C_O5);
-        fb_text_c(VX + VW - 6 - 37, VY + 18, b, k < 0 ? C_INK2 : C_O6);
+        fb_rect(VX + VW - 6 - 84, VY + 17, 84, 13, C_K1);
+        fb_frame(VX + VW - 6 - 84, VY + 17, 84, 13, k < 0 ? C_S1 : C_O5);
+        fb_text_c(VX + VW - 6 - 42, VY + 19, b, k < 0 ? C_INK2 : C_O6);
+        {                                                                   /* the octave the keys are in */
+            char *o = ui_str(b, "OCT ");
+            if (gs.oct > 0)
+                *o++ = '+';
+            ui_num(o, gs.oct);
+            fb_rect(VX + VW - 6 - 84, VY + 32, 84, 13, C_K1);
+            fb_frame(VX + VW - 6 - 84, VY + 32, 84, 13, C_S1);
+            fb_text_c(VX + VW - 6 - 42, VY + 34, b, C_INK);
+        }
     }
     if (gs.scount) {                                                        /* the count-in */
         char d[2];
@@ -1344,44 +1377,46 @@ static void vz_save(uint32_t now)
     fb_line(bx + 208, by, bx + 215, by + 7, C_S6);
     for (k = 0; k < 8; k++)                                                    /* the contacts */
         fb_rect(bx + 40 + k * 17, by + 76, 11, 5, C_O6);
-    fb_rect(bx + 5, by + 5, 206, 58, C_K1);
-    fb_frame(bx + 5, by + 5, 206, 58, C_S0);
+    fb_rect(bx + 5, by + 5, 206, 54, C_K1);
+    fb_frame(bx + 5, by + 5, 206, 54, C_S0);
     for (i = 0; i < SV_N; i++) {
-        int x = bx + 8 + (i & 3) * 51, y = by + 8 + (i >> 2) * 28, full = sv.slot[i][0] != 0, sel = i == ui.slot;
-        char b[2];
-        fb_rect(x, y, 48, 26, sel ? C_O1 : C_K2);
-        fb_frame(x, y, 48, 26, sel ? C_HOT : C_S0);
-        fb_clip(x + 1, y + 1, x + 47, y + 25);
-        g3_cam(x + 14, y + 14, 150, 150, 120);
+        int x = bx + 7 + (i % 6) * 33, y = by + 7 + (i / 6) * 17, full = (int)((sv_full >> i) & 1u), sel = i == ui.slot;
+        char b[3], *q = b;
+        fb_rect(x, y, 31, 16, sel ? C_O1 : C_K2);
+        fb_frame(x, y, 31, 16, sel ? C_HOT : C_S0);
+        fb_clip(x + 1, y + 1, x + 30, y + 15);
+        g3_cam(x + 8, y + 9, 150, 150, 120);
         {
-            int s = sel ? 6 : 4, spin = (int)(now >> (sel ? 3 : 5)) + i * 70, bob = sel ? g3_sin((int)(now >> 2)) * 3 / 32768 : 0;
+            int s = sel ? 3 : 2, spin = (int)(now >> (sel ? 3 : 5)) + i * 70, bob = sel ? g3_sin((int)(now >> 2)) * 3 / 32768 : 0;
             if (full)
                 g3_draw(&G3_ICO, 0, bob, 0, s, s, s, spin / 3, spin, 0, C_O0, 8, sel ? 2 : 0, sel ? C_HOT : C_O6);
             else
                 g3_draw(&G3_CUBE, 0, bob, 0, s, s, s, spin / 3, spin, 0, 255, 0, 0, sel ? C_S6 : C_S3);
         }
         fb_clip(VX, VY, VX + VW, VY + VH);
-        b[0] = (char)('1' + i);
-        b[1] = 0;
-        fb_text(x + 31, y + 8, b, sel ? C_HOT : (full ? C_O6 : C_INK2));
+        ui_num(q, i + 1);
+        fb_text(x + 15, y + 4, b, sel ? C_HOT : (full ? C_O6 : C_INK2));
         if (sel) {                                                             /* brackets */
-            fb_hline(x - 2, y - 2, 6, C_HOT); fb_vline(x - 2, y - 2, 6, C_HOT);
-            fb_hline(x + 44, y + 27, 6, C_HOT); fb_vline(x + 49, y + 22, 6, C_HOT);
+            fb_hline(x - 2, y - 2, 5, C_HOT); fb_vline(x - 2, y - 2, 5, C_HOT);
+            fb_hline(x + 28, y + 17, 5, C_HOT); fb_vline(x + 32, y + 13, 5, C_HOT);
         }
     }
     {
-        const uint8_t *d = sv.slot[ui.slot];
+        const uint8_t *d;
         char b[40];
         int n = 0;
-        const char *nm = d[0] ? GS_PRE[d[1] % GS_NPRE].name : "FREE";
-        b[n++] = (char)('1' + ui.slot);
+        const char *nm;
+        ui_sv_sec(ui.slot / SV_PER);
+        d = sv.slot[ui.slot % SV_PER];
+        nm = d[0] ? GS_PRE[d[1] % GS_NPRE].name : "FREE";
+        n = ui_num(b, ui.slot + 1) - b;
         b[n++] = ' ';
         while (*nm && n < 38)
             b[n++] = *nm++;
         b[n] = 0;
-        fb_rect(bx + 5, by + 65, 206, 12, C_K1);
-        fb_text(bx + 9, by + 66, "MEMORY CARD", C_S4);
-        fb_text_r(bx + 207, by + 66, b, d[0] ? C_O6 : C_INK2);
+        fb_rect(bx + 5, by + 61, 206, 13, C_K1);
+        fb_text(bx + 9, by + 62, "MEMORY CARD", C_S4);
+        fb_text_r(bx + 207, by + 62, b, d[0] ? C_O6 : C_INK2);
     }
 }
 
@@ -1389,6 +1424,25 @@ static void vz_save(uint32_t now)
 static const char *const UI_SAVE_ACT[3] = {"LOAD", "SAVE", "CLEAR"};
 
 static int ui_ov_v, ui_ov_m;                                   /* the bar of the next plate, when it is not a parameter (ui_ov_m 0: none) */
+/* an engraved label: if it is wider than its strip the letters close up by a pixel each */
+static void ui_label(int cx, int y, const char *s, uint8_t c)
+{
+    int w = fb_text_w(s), n = 0, x;
+    const char *q;
+    char one[2];
+    for (q = s; *q; q++)
+        n++;
+    if (w <= 41 || n < 2) {
+        fb_text_c(cx, y, s, c);
+        return;
+    }
+    x = cx - (w - n) / 2;
+    one[1] = 0;
+    for (q = s; *q; q++) {
+        one[0] = *q;
+        x += fb_text(x, y, one, c) - 1;
+    }
+}
 static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int accent)
 {
     int x = 6 + i * 58, y = 156, w = 54, h = 76;
@@ -1403,7 +1457,7 @@ static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int a
     fb_rbox(x, y, w, h, 5, C_K1);
     fb_frame(x, y, w, h, hot ? C_R3 : C_S1);
     ui_metal(x + 3, y + 3, w - 6, 15);                                              /* the engraved label strip */
-    fb_text_c(x + w / 2, y + 2, label, C_BG);
+    ui_label(x + w / 2, y + 2, label, C_BG);
     val = idx == 255u ? "" : ui_val(idx, buf);
     if (idx != 255u && !ui_is_enum(idx) && idx != P_GLIDE)
         fb_text2_c(x + w / 2, y + 27, val, hot ? C_HOT : accent ? C_O6 : C_INK, 0);
@@ -1638,10 +1692,15 @@ static void ui_draw(uint32_t now)
     ui_screw(227, 110);
     /* the page's name in the window's corner, the level at its right */
     if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE && ui.page != PG_CHORD && ui.page != PG_SEQ && ui.page != PG_SEQ2 && ui.page != PG_SEQ3)
+    {
+        if (ui.page == PG_ENV || ui.page == PG_ENV2)                         /* the envelope's first slope runs under the name */
+            fb_rect(VX + 2, VY + 1, fb_text_w(pg->name) + 5, 11, C_K1);
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
-    if (ui.page == PG_HOME || ui.page == PG_OSC)
+    }
+    if (ui.page == PG_HOME || ui.page == PG_OSC) {
+        fb_rect(VX + VW - 12 - fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]) - 3, VY + 1, fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]) + 6, 11, C_K1);
         fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
-    else if (ui.page == PG_FLT)
+    } else if (ui.page == PG_FLT)
         fb_text_r(VX + VW - 4, VY + 3, GS_FT_NAME[gs.p[P_FTYPE] % GS_NFT], C_INK);
     {
         int lv = gs.level * (VH - 8) / 255;
@@ -1705,9 +1764,9 @@ static void ui_draw(uint32_t now)
             if (i == 1u) {
                 p = b;
                 *p++ = (char)('A' + (gs.pcur + GS_NP - 1) % GS_NP);
-                p = ui_str(p, " < ");
+                p = ui_str(p, "<");
                 *p++ = (char)('A' + gs.pcur);
-                p = ui_str(p, " > ");
+                p = ui_str(p, ">");
                 *p++ = (char)('A' + (gs.pcur + 1) % GS_NP);
                 *p = 0;
                 fb_text_c(6 + 58 + 27, 156 + 31, b, C_O6);
