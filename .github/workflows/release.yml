@@ -101,6 +101,12 @@ jobs:
           sys.exit(f"AC79 SDK files missing or different from {os.environ['AC79_SDK_TAG']}: {bad}" if bad else 0)
           PY
 
+      - name: Clock test (the tempo holds for ten minutes at every tempo tried)
+        run: |
+          set -euo pipefail
+          cc -O2 -Ifirmware/src tools/host/gs_clock_test.c -o /tmp/gsck -lm
+          /tmp/gsck
+
       - name: Build (./build.sh --release)
         run: |
           set -euo pipefail

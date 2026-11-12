@@ -765,7 +765,7 @@ static void gs_seq_start(void)
     gs.snote = -1;
     gs.sslide = 0;
     gs.pnext = 255;
-    gs.scount = gs.srec ? 17u : 0u;
+    gs.scount = gs.srec ? 17u : 0u;                                 /* (the start's own downbeat is the one) */
     gs.greset = 1;                                                 /* the gate and the clock start with it */
 }
 
@@ -849,6 +849,10 @@ static void gs_seq_rec(uint32_t note)
 static void gs_tick(uint32_t n)
 {
     uint32_t s16 = gs_s16(), step_len, nq = n << GS_Q;
+    if (gs.greset) {                                               /* a start (the sequence, the arp's first key): this block is the downbeat */
+        gs.sacc = s16 - nq;
+        gs.sixteenth = 15;
+    }
     gs.sacc += nq;
     while (gs.sacc >= s16) {                                       /* the sixteenth clock: the visuals and the glitch's beat */
         gs.sacc -= s16;
@@ -871,8 +875,6 @@ static void gs_tick(uint32_t n)
         gs.greset = 0;
         gs.gstep = 15;
         gs.gacc = step_len;
-        gs.sacc = s16;                                              /* the next block is the downbeat (the metronome, the count-in) */
-        gs.sixteenth = 15;
     }
     gs.gacc += nq;
     while (gs.gacc >= step_len) {
@@ -958,7 +960,7 @@ static void gs_del(uint32_t note)
 static void gs_key(uint32_t note, int down)
 {
     if (gs.srun && gs.srec) {                                      /* recording: the key sounds and is written where it falls */
-        if (down && !gs.scount)
+        if (down && gs.scount <= 1u)                               /* (a key a little early for the first downbeat is step 1) */
             gs_seq_rec(note);
     } else if (gs.srun) {                                          /* while the sequence runs a key moves it: the key is the note step 12 plays */
         if (down)
