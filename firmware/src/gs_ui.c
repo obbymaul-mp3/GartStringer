@@ -664,13 +664,17 @@ static void ui_input(uint32_t now)
                 *tp++ = (char)('A' + src);
                 *tp = 0;
                 ui_toast(tb, now);
-            } else if (i == 2u) {                                   /* fill: a new pattern in the trance minor */
-                static const uint8_t SC[9] = {0, 0, 3, 5, 7, 7, 10, 12, 15};
+            } else if (i == 2u) {                                   /* fill: a new pattern. Trance: a busy line in the minor. House: a sparser bass line that leans on the off-beats */
+                static const uint8_t SC[9] = {0, 0, 3, 5, 7, 7, 10, 12, 15}, HS[8] = {0, 0, 0, 3, 7, 10, 12, 12};
                 if (sg > 0) {
+                    int house = ui_world();
                     for (k = 0; k < gs.spl[gs.pcur]; k++) {
                         uint32_t r = sk_rand();
                         int on = (k & 3) == 0 ? (r & 15u) < 14u : (r & 15u) < 10u;
-                        gs.sp[gs.pcur][k] = on ? SP_MAKE(12 + SC[(r >> 4) % 9u] - ((r >> 12) % 6u == 0u ? 12 : 0), (r >> 16) % 5u == 0u, (r >> 20) % 8u == 0u) : 0u;
+                        if (house)
+                            on = (k & 3) == 2 ? (r & 15u) < 14u : (k & 3) == 0 ? (r & 15u) < 7u : (r & 15u) < 5u;
+                        gs.sp[gs.pcur][k] = !on ? 0u : house ? SP_MAKE(12 + HS[(r >> 4) % 8u], (k & 3) == 2 && (r >> 16) % 3u == 0u, (r >> 20) % 10u == 0u)
+                                                            : SP_MAKE(12 + SC[(r >> 4) % 9u] - ((r >> 12) % 6u == 0u ? 12 : 0), (r >> 16) % 5u == 0u, (r >> 20) % 8u == 0u);
                     }
                     ui.shift = 0;
                     ui_toast("FILLED", now);
