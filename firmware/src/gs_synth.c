@@ -19,7 +19,8 @@
 #define SK_CTL 32                        /* samples a block */
 #define SK_FS 44100
 #define GS_NV 6                          /* voices */
-#define GS_NPRE 32                       /* factory patches */
+#define GS_NPRE 48                       /* factory patches: 32 trance, 16 house */
+#define GS_NTRANCE 32                    /* the first house patch */
 #define GS_NS 128                        /* the longest pattern: 128 steps */
 #define GS_NP 8                          /* patterns A..H */
 
@@ -34,13 +35,13 @@ enum {
     P_GPAT, P_GRATE, P_GDEP, P_GSMO,                        /* trance gate: pattern, rate, depth, smoothing */
     P_APAT, P_ARATE, P_ARNG, P_AGATE, P_AON,                /* arpeggio: pattern, rate, octaves, gate length, on */
     P_GLP, P_GLL, P_GLT, P_CRU,                             /* glitch: chance, length, kind, crush */
-    P_SRATE, P_SMET, P_SSWG, P_SGATE, P_SPARE,              /* sequencer: rate, metronome (off, soft, mid, loud), swing, gate length, (spare) */
+    P_SRATE, P_SMET, P_SSWG, P_SGATE, P_TAPE,               /* sequencer: rate, metronome (off, soft, mid, loud), swing, gate length; and the tape (wow, flutter, a darker top) */
     P_CON, P_CKEY, P_CSCL, P_CLAY, P_CVOI,                  /* chords: on, key, scale, layout (top, top lock, side, side lock), voicing */
     P_N
 };
-#define GS_NMODE 5
+#define GS_NMODE 8
 #define GS_NFT 5
-static const char *const GS_MODE_NAME[GS_NMODE] = {"SUPERSAW", "HYPERSYNC", "PWM STACK", "ROLL BASS", "FEEDBACK"};
+static const char *const GS_MODE_NAME[GS_NMODE] = {"SUPERSAW", "HYPERSYNC", "PWM STACK", "ROLL BASS", "FEEDBACK", "FM KEYS", "ORGAN", "DONK"};
 static const char *const GS_FT_NAME[GS_NFT] = {"LOW 12", "LOW 24", "BAND", "HIGH", "VOWEL"};
 static const char *const GS_LDST_NAME[5] = {"PITCH", "FILTER", "AMP", "COLOUR", "DETUNE"};
 static const char *const GS_LSHP_NAME[4] = {"SINE", "TRI", "SQUARE", "S+H"};
@@ -52,13 +53,15 @@ static const char *const GS_GR_NAME[4] = {"1/8", "1/16", "1/32", "1/16 T"};
 static const char *const GS_GL_NAME[4] = {"STUTTER", "REVERSE", "TAPE STOP", "DROP OUT"};
 static const char *const GS_MET_NAME[4] = {"OFF", "SOFT", "MEDIUM", "LOUD"};
 static const char *const GS_GLL_NAME[5] = {"1/16", "1/32", "1/8", "1/64", "1/16 T"};
-#define GS_NPAT 14
+#define GS_NPAT 16
+#define GS_PUMP0 14                       /* the first pump: these duck on the beat and swell back, like a compressor keyed by a kick */
 static const char *const GS_GT_STR[GS_NPAT] = {
     "..x...x...x...x.", "x.x.x.x.x.x.x.x.", "xx.xx.xx.xx.xx.x", "x.xx.xx.x.xx.xx.", "xxx.xxx.xxx.xx.x",
     "x..x..x.x..x..x.", "xxxx..xxxxxx..xx", "xx..xx..xx..xx..", "x..x.x..x..x.x..", "x.x..x..x.x..x..",
     "x...x.x.x...x.xx", "x.......xx......", "????????????????", "xxxxxxxxxxxxxxxx",
+    ".xxx.xxx.xxx.xxx", ".x.x.x.x.x.x.x.x",
 };
-static const char *const GS_GT_NAME[GS_NPAT] = {"OFFBEAT", "BOUNCE", "ROLLING", "TRANCE A", "TRANCE B", "3-3-2", "STUTTER", "DOUBLE", "SYNCOPE", "SKIP", "SPARSE", "HAUNT", "RANDOM", "OPEN"};
+static const char *const GS_GT_NAME[GS_NPAT] = {"OFFBEAT", "BOUNCE", "ROLLING", "TRANCE A", "TRANCE B", "3-3-2", "STUTTER", "DOUBLE", "SYNCOPE", "SKIP", "SPARSE", "HAUNT", "RANDOM", "OPEN", "PUMP 1/4", "PUMP 1/8"};
 
 /* the voice mode as played: the chord instrument needs every voice, so it plays polyphonic whatever the patch says */
 #define GS_VM() ((uint32_t)(gs.p[P_CON] ? 0u : gs.p[P_VMODE]))
@@ -136,11 +139,23 @@ static struct {
     int8_t snote;                        /* the note sounding, -1 none */
     uint8_t sroot;                       /* the note a step of 12 plays (the keys move it while it runs) */
     uint32_t sclk, soff;                 /* samples into the step, and when its note ends */
+    uint32_t wow_ph, flu_ph;             /* the tape: its slow wow and quick flutter */
+    int32_t tape_pq;                     /* .. the pitch they add now, Q8 semitones */
     uint32_t met_ph, met_inc;            /* the metronome's click: phase, step */
     int32_t met_env;                     /* its envelope, Q15 */
 } gs;
 
-static uint32_t gs_s16(void) { return 661500u / (uint32_t)(gs.bpm < 40u ? 40u : gs.bpm); }   /* samples a sixteenth */
+/* The clock. Every musical length is kept in 1/256 of a sample, so no tempo rounds to whole samples, and it is worked out from
+ * the sample rate the hardware really runs at (gs_rate, in millihertz: the platform measures the converter against the 24 MHz
+ * crystal and corrects it), so a bar lasts what the tempo says by the crystal, whatever the audio clock does. */
+static uint32_t gs_rate = 44100000u;                               /* samples a second, x1000 */
+#define GS_Q 8                                                     /* the clocks' fraction bits */
+static uint32_t gs_s16(void)                                       /* a sixteenth, in 1/256 samples */
+{
+    uint32_t bpm = gs.bpm < 40u ? 40u : gs.bpm;
+    return (gs_rate * 96u) / (25u * bpm);                           /* rate/1000 * 15/bpm * 256 (the product stays under 2^32 up to 44.7 kHz) */
+}
+static uint32_t gs_s16s(void) { return gs_s16() >> GS_Q; }          /* .. in whole samples (the echo, the glitch) */
 
 /* ---------------------------------------------------------------- voices --- */
 static const int32_t GS_DT[7] = {-7210, -4121, -1279, 0, 1305, 4074, 7042};     /* a supersaw's seven detunes, as a fraction of the pitch (Q16) */
@@ -316,6 +331,11 @@ static void gs_lfo_step(void)
     }
     if (!gs.p[P_LAMT])
         gs.lfo = 0;
+    /* the tape: a slow wow and a quick flutter on every voice's pitch (up to about a third of a semitone) */
+    gs.wow_ph += 1714000u;                                         /* 0.55 Hz at the block rate */
+    gs.flu_ph += 19000000u;                                        /* 6.1 Hz */
+    gs.tape_pq = gs.p[P_TAPE] ? (int32_t)((SK_SIN[(gs.wow_ph >> 22) & 1023u] * ((int32_t)gs.p[P_TAPE] * 90 / 127) +
+                                           SK_SIN[(gs.flu_ph >> 22) & 1023u] * ((int32_t)gs.p[P_TAPE] * 12 / 127)) >> 15) : 0;
 }
 
 static inline int32_t gs_pitch_inc(int32_t pq8, uint32_t *inc, uint32_t *base)
@@ -351,6 +371,7 @@ static void gs_voices(int32_t *mix, uint32_t n)
         int32_t tgt, vib = 0, cutq, col, det, mixv, ga, dga, ga_new;
         uint32_t inc, base, finc[7], thr = 0;
         int32_t a1, a2, a3, a1b = 0, a2b = 0, a3b = 0, kk, kv = 0;
+        uint32_t fmi = 0, fmt = 0;                              /* the FM kinds' modulation depths this block */
         uint32_t ftype = p[P_FTYPE];
         if (!v->on)
             continue;
@@ -371,7 +392,7 @@ static void gs_voices(int32_t *mix, uint32_t n)
             v->pitch = tgt;
         if (dst == 0u)
             vib = (lfo * amt) >> 13;
-        gs_pitch_inc(v->pitch + vib + ((int32_t)p[P_OCT] - 2) * 12 * 256, &inc, &base);
+        gs_pitch_inc(v->pitch + vib + gs.tape_pq + ((int32_t)p[P_OCT] - 2) * 12 * 256, &inc, &base);
         /* colour, detune */
         col = p[P_COL];
         det = p[P_DET];
@@ -449,6 +470,35 @@ static void gs_voices(int32_t *mix, uint32_t n)
             finc[1] = inc + (uint32_t)(((uint64_t)inc * (uint32_t)det) >> 11);
             finc[2] = inc >> 1;
             break;
+        case 5: {                                                /* FM keys: two tines a little apart, each a sine bent by a sine; the bend dies with the filter envelope */
+            uint32_t e = 16384u + (uint32_t)((v->fe * 3) >> 2), e2 = (uint32_t)(((int64_t)v->fe * v->fe) >> 16);
+            finc[0] = inc;
+            finc[1] = inc + (uint32_t)(((uint64_t)inc * (uint32_t)det) >> 14);
+            finc[2] = finc[0];
+            finc[3] = finc[1];
+            finc[4] = inc * 14u;                                 /* the bell of the hammer */
+            fmi = ((uint32_t)col * 700u * e) >> 16;
+            fmt = ((uint32_t)mixv * 300u * e2) >> 16;
+            break;
+        }
+        case 6:                                                  /* organ: drawbars at 1, 2, 3 and 4 times the note, and a second pair a little off */
+            finc[0] = inc;
+            finc[1] = inc * 2u;
+            finc[2] = inc * 3u;
+            finc[3] = inc * 4u;
+            finc[4] = inc + (uint32_t)(((uint64_t)inc * (uint32_t)det) >> 14);
+            finc[5] = finc[4] * 2u;
+            fmi = (uint32_t)((v->fe >> 9) * mixv) >> 7;          /* the key click: the third drawbar pushed while the filter envelope is up */
+            break;
+        case 7: {                                                /* donk: a sine struck by a sine at a ratio; the strike falls with the filter envelope */
+            static const uint16_t RT[8] = {256, 512, 768, 896, 1024, 1280, 1792, 2304};
+            uint32_t e = 6000u + (uint32_t)(((int64_t)v->fe * 59536) >> 16);
+            finc[0] = inc;
+            finc[1] = inc + (uint32_t)(((uint64_t)inc * (uint32_t)det) >> 13);
+            finc[2] = (uint32_t)(((uint64_t)inc * RT[(col >> 4) & 7]) >> 8);
+            fmi = ((uint32_t)mixv * 1000u * e) >> 16;
+            break;
+        }
         default:                                                 /* feedback */
             for (k = 0; k < 3u; k++) {
                 int32_t d = k == 0u ? 0 : (k == 1u ? GS_DT[1] : GS_DT[5]);
@@ -505,6 +555,35 @@ static void gs_voices(int32_t *mix, uint32_t n)
                     q = v->ph[2] < 0x80000000u ? 28000 : -28000;
                     s = (int32_t)(((int64_t)a * (127 - col) + (int64_t)q * col) >> 7);
                     s = (s * 17000 + b * (mixv * 70)) >> 15;
+                    break;
+                }
+                case 5: {
+                    int32_t m1, m2, mt;
+                    for (k = 0; k < 5u; k++)
+                        v->ph[k] += finc[k];
+                    m1 = SK_SIN[(v->ph[2] >> 22) & 1023u];
+                    m2 = SK_SIN[(v->ph[3] >> 22) & 1023u];
+                    mt = SK_SIN[(v->ph[4] >> 22) & 1023u];
+                    s = (SK_SIN[((v->ph[0] + (uint32_t)m1 * fmi) >> 22) & 1023u] * 12000 + SK_SIN[((v->ph[1] + (uint32_t)m2 * fmi) >> 22) & 1023u] * 12000 +
+                         SK_SIN[((v->ph[0] + (uint32_t)mt * fmt) >> 22) & 1023u] * 5000) >> 15;
+                    break;
+                }
+                case 6: {
+                    int32_t w2 = 30 + col * 3 / 4, w3 = col + (int32_t)fmi, w4 = col > 50 ? col - 50 : 0, sum;
+                    for (k = 0; k < 6u; k++)
+                        v->ph[k] += finc[k];
+                    sum = SK_SIN[(v->ph[0] >> 22) & 1023u] * 120 + SK_SIN[(v->ph[1] >> 22) & 1023u] * w2 + SK_SIN[(v->ph[2] >> 22) & 1023u] * w3 +
+                          SK_SIN[(v->ph[3] >> 22) & 1023u] * w4 + ((SK_SIN[(v->ph[4] >> 22) & 1023u] * 120 + SK_SIN[(v->ph[5] >> 22) & 1023u] * w2) >> 1);
+                    s = (int32_t)(((int64_t)sum * 62) >> 15);
+                    break;
+                }
+                case 7: {
+                    int32_t m;
+                    v->ph[0] += finc[0];
+                    v->ph[1] += finc[1];
+                    v->ph[2] += finc[2];
+                    m = SK_SIN[(v->ph[2] >> 22) & 1023u];
+                    s = ((SK_SIN[((v->ph[0] + (uint32_t)m * fmi) >> 22) & 1023u] + SK_SIN[((v->ph[1] + (uint32_t)m * fmi) >> 22) & 1023u]) * 14000) >> 15;
                     break;
                 }
                 default: {
@@ -617,7 +696,7 @@ static void gs_arp_step(void)
     gs_note_on((uint32_t)note, gs.astep % 4u == 1u ? 127u : 104u);
 }
 
-static uint32_t gs_arp_int(void)                                   /* samples between arp steps */
+static uint32_t gs_arp_int(void)                                   /* between arp steps, in 1/256 samples */
 {
     static const uint16_t SIXT[5] = {512, 341, 256, 171, 128};     /* in 1/256 of a sixteenth * 2: 1/8 = 2 sixteenths ... */
     return (uint32_t)(((uint64_t)gs_s16() * SIXT[gs.p[P_ARATE] % 5u]) >> 8) >> 0;
@@ -682,13 +761,11 @@ static void gs_seq_start(void)
 {
     gs.srun = 1;
     gs.sstep = 255;                                                /* the first tick plays step 1 */
-    gs.sclk = 0xFFFFFFu;
+    gs.sclk = 0;
     gs.snote = -1;
     gs.sslide = 0;
     gs.pnext = 255;
     gs.scount = gs.srec ? 17u : 0u;
-    if (gs.scount)
-        gs.sclk = 0;
     gs.greset = 1;                                                 /* the gate and the clock start with it */
 }
 
@@ -704,11 +781,11 @@ static void gs_pat_select(uint32_t p)
         gs.pnext = p == gs.pcur ? 255u : (uint8_t)p;
 }
 
-static uint32_t gs_seq_len(void)                                   /* samples the step now playing lasts: the rate, the swing on the odd ones */
+static uint32_t gs_seq_len(void)                                   /* how long the step now playing lasts, in 1/256 samples: the rate, the swing on the odd ones */
 {
     uint32_t base = (uint32_t)(((uint64_t)gs_s16() * GS_GRATE[gs.p[P_SRATE] & 3u]) >> 8), sw = (uint32_t)gs.p[P_SSWG] * 30u / 127u;
-    base = base * ((gs.sstep & 1u) ? 100u - sw : 100u + sw) / 100u;
-    return base < 64u ? 64u : base;
+    base = base / 100u * ((gs.sstep & 1u) ? 100u - sw : 100u + sw) + base % 100u * ((gs.sstep & 1u) ? 100u - sw : 100u + sw) / 100u;
+    return base < (64u << GS_Q) ? (64u << GS_Q) : base;
 }
 
 static void gs_seq_step(void)
@@ -727,12 +804,11 @@ static void gs_seq_step(void)
     }
     gs.sstep = (uint8_t)s;
     f = gs.sp[gs.pcur][s];
-    gs.sclk = 0;
-    {
+    {                                                              /* (the clock is the caller's: what ran over the last step counts toward this one) */
         uint32_t cur = gs_seq_len();
         gs.soff = (uint32_t)(((uint64_t)cur * (uint32_t)(8 + gs.p[P_SGATE])) >> 7);
-        if (gs.soff > cur - 8u)
-            gs.soff = cur - 8u;                                     /* (a note ends before the next step starts) */
+        if (gs.soff > cur - (8u << GS_Q))
+            gs.soff = cur - (8u << GS_Q);                           /* (a note ends before the next step starts) */
     }
     gs.sslide = (uint8_t)(SP_ON(f) && SP_SLD(f));
     if (SP_ON(f)) {
@@ -772,8 +848,8 @@ static void gs_seq_rec(uint32_t note)
 
 static void gs_tick(uint32_t n)
 {
-    uint32_t s16 = gs_s16(), step_len;
-    gs.sacc += n;
+    uint32_t s16 = gs_s16(), step_len, nq = n << GS_Q;
+    gs.sacc += nq;
     while (gs.sacc >= s16) {                                       /* the sixteenth clock: the visuals and the glitch's beat */
         gs.sacc -= s16;
         gs.sixteenth = (uint8_t)((gs.sixteenth + 1u) & 15u);
@@ -783,14 +859,14 @@ static void gs_tick(uint32_t n)
                 gs_click(gs.sixteenth == 0u);
             if (gs.scount && --gs.scount == 0u) {                       /* the count-in is over: the sequence starts on this downbeat */
                 gs.sstep = 255;
-                gs.sclk = 0xFFFFFFu;
+                gs.sclk = gs.sacc;                                      /* (what this block ran past the beat is already into step 1) */
             }
         }
     }
     /* the trance gate */
     step_len = (uint32_t)(((uint64_t)s16 * GS_GRATE[gs.p[P_GRATE] & 3u]) >> 8);
-    if (step_len < 64u)
-        step_len = 64u;
+    if (step_len < (64u << GS_Q))
+        step_len = 64u << GS_Q;
     if (gs.greset) {                                               /* the arp's first key: the gate and the clock start on step 0 */
         gs.greset = 0;
         gs.gstep = 15;
@@ -798,7 +874,7 @@ static void gs_tick(uint32_t n)
         gs.sacc = s16;                                              /* the next block is the downbeat (the metronome, the count-in) */
         gs.sixteenth = 15;
     }
-    gs.gacc += n;
+    gs.gacc += nq;
     while (gs.gacc >= step_len) {
         gs.gacc -= step_len;
         gs.gstep = (uint8_t)((gs.gstep + 1u) & 15u);
@@ -810,25 +886,44 @@ static void gs_tick(uint32_t n)
         char c = pat[gs.gstep & 15u];
         int on = c == '?' ? (int)((gs.rmask >> (gs.gstep & 15u)) & 1u) : c == 'x';
         gs.gon = (uint8_t)on;
-        gs.gate_t = on ? 32767 : 32767 - (int32_t)gs.p[P_GDEP] * 258;
-        if (gs.gate_t < 0)
-            gs.gate_t = 0;
-        gs.gate_g += (int32_t)(((int64_t)(gs.gate_t - gs.gate_g) * (int32_t)GS_K[gs.p[P_GSMO]]) >> 16);
+        if (gs.p[P_GPAT] >= GS_PUMP0) {                            /* a pump: down on the beat, then a curve back up to full by the next one */
+            uint32_t per = gs.p[P_GPAT] == GS_PUMP0 ? 4u : 2u;
+            uint32_t ph = (((gs.gstep % per) << 12) + ((gs.gacc >> 8) << 12) / ((step_len >> 8) ? (step_len >> 8) : 1u)) / per;   /* 0..4095 through the beat */
+            uint32_t t = 1024u + (uint32_t)gs.p[P_GSMO] * 24u, x = (ph << 12) / t;       /* SMOOTH: how much of the beat the swell back takes (a quarter of it to all of it) */
+            int32_t down = x >= 4096u ? 0 : 4096 - (int32_t)x;
+            down = (down * down) >> 12;
+            gs.gate_t = 32767 - (int32_t)(((int64_t)gs.p[P_GDEP] * 258 * down) >> 12);
+            if (gs.gate_t < 0)
+                gs.gate_t = 0;
+            gs.gate_g += (gs.gate_t - gs.gate_g) >> 1;              /* (just enough smoothing that the drop does not click) */
+        } else {
+            gs.gate_t = on ? 32767 : 32767 - (int32_t)gs.p[P_GDEP] * 258;
+            if (gs.gate_t < 0)
+                gs.gate_t = 0;
+            gs.gate_g += (int32_t)(((int64_t)(gs.gate_t - gs.gate_g) * (int32_t)GS_K[gs.p[P_GSMO]]) >> 16);
+        }
     }
     /* the sequencer */
     if (gs.srun && !gs.scount) {
-        gs.sclk += n;
-        if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff) {
-            gs_note_off((uint32_t)gs.snote);
-            gs.snote = -1;
-        }
-        while (gs.sclk >= gs_seq_len())
+        if (gs.sstep == 255u)                                       /* the start: step 1 sounds at once */
             gs_seq_step();
+        else {
+            uint32_t len;
+            gs.sclk += nq;
+            if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff) {
+                gs_note_off((uint32_t)gs.snote);
+                gs.snote = -1;
+            }
+            while (gs.sclk >= (len = gs_seq_len())) {              /* a step ends: what ran over it is kept, so the steps never lose time */
+                gs.sclk -= len;
+                gs_seq_step();
+            }
+        }
     }
     /* the arp */
     if (gs.p[P_AON]) {
         uint32_t ai = gs_arp_int();
-        gs.aacc += n;
+        gs.aacc += nq;
         if (gs.acur >= 0 && gs.aacc >= gs.aoff) {
             gs_note_off((uint32_t)gs.acur);
             gs.acur = -1;

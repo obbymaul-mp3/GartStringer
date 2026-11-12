@@ -53,6 +53,43 @@ void fm1_timer5_irq(void)
     usb_poll();
 }
 
+/* The converter's real rate. Each half buffer is 128 samples; TIMER4 counts the 24 MHz crystal. Over 2048 halves (about six
+ * seconds) the two are compared, which gives the rate to a few parts in a million; when two windows in a row agree and the
+ * result is within half a percent of 44.1 kHz, the tempo clock takes it (gs_rate), so the tempo is the crystal's and not the
+ * audio clock's. A window with a late half in it is thrown away. sk_rate_mhz (gs_ui.c) is what was last measured (0: not yet). */
+static void sk_rate_tick(uint32_t t0)
+{
+    static uint32_t last, n, late0, prev, ticks;
+    static uint8_t primed;
+    if (!primed) {
+        primed = 1;
+        last = t0;
+        late0 = sk_late;
+        return;
+    }
+    ticks += (uint32_t)(t0 - last);                    /* (a window is about 143 million ticks: it fits) */
+    last = t0;
+    if (++n < 2048u)
+        return;
+    if (sk_late == late0 && ticks > 100000000u) {
+        /* 262144 samples should take 142662857 ticks at 44.1 kHz; the rate is 44.1 kHz times that over what they took.
+         * In parts per million (32-bit arithmetic only): ppm = (nominal - ticks) * 1e6 / ticks */
+        int32_t d = (int32_t)(142662857u - ticks);
+        if (d > -720000 && d < 720000) {                   /* within half a percent */
+            int32_t ppm = d * 1000 / (int32_t)(ticks / 1000u);
+            uint32_t r = (uint32_t)(44100000 + ppm * 44 + ppm / 10);
+            uint32_t df = r > prev ? r - prev : prev - r;
+            sk_rate_mhz = r;
+            if (prev && df < 1500u)                        /* two windows within 34 ppm of each other */
+                gs_rate = gs_rate == 44100000u ? (r + prev) / 2u : (gs_rate / 4u * 3u + r / 4u);
+            prev = r;
+        }
+    }
+    late0 = sk_late;
+    ticks = 0;
+    n = 0;
+}
+
 void fm1_alnk0_irq(void)
 {
     uint8_t p = fm1_audio_pending();
@@ -62,6 +99,7 @@ void fm1_alnk0_irq(void)
     if (p & FM1_AUDIO_HALF) {
         uint32_t half, b, i, us, load;
         int32_t *o;
+        sk_rate_tick(t0);
         fm1_audio_ack_half();                          /* before the render: a boundary passing during it keeps its interrupt */
         half = fm1_audio_free_half();
         o = &abuf[half * HALF_WORDS];

@@ -94,6 +94,14 @@ MICRO = {
     "\xb0": ["###", "#.#", "###", "...", "..."],
     "\xf8": [".#.#", "#.#.", "#.##", ".#.#", "#.#."],
     "?": ["##.", "..#", ".#.", "...", ".#."],
+    "%": ["#.#", "..#", ".#.", "#..", "#.#"],
+    "<": ["..#", ".#.", "#..", ".#.", "..#"],
+    ">": ["#..", ".#.", "..#", ".#.", "#.."],
+    "!": ["#", "#", "#", ".", "#"],
+    "=": ["...", "###", "...", "###", "..."],
+    ",": [".", ".", ".", "#", "#"],
+    "*": ["...", "#.#", ".#.", "#.#", "..."],
+    "'": ["#", "#", ".", ".", "."],
 }
 SMALL = {  # small raised digits, 3x4 (top-aligned in the 5-row cell)
     "0": ["###", "#.#", "#.#", "###"],
@@ -130,11 +138,9 @@ def micro_glyphs():
 
 
 def ui_glyphs():
-    """GartStringer's face: Sora (OFL), proportional, 11 px, 1-bit, rows of 16 bits (bit 15 = the leftmost pixel). The
-    code points Sora lacks come from Departure Mono, baseline-aligned."""
-    font = ImageFont.truetype(str(SORA), UI_PX, layout_engine=ImageFont.Layout.BASIC)
-    font.set_variation_by_name("Regular")
+    """GartStringer's face: Departure Mono (OFL), 11 px, 1-bit, rows of 16 bits (bit 15 = the leftmost pixel)."""
     dep = ImageFont.truetype(str(UI_FONT), UI_PX, layout_engine=ImageFont.Layout.BASIC)
+    font = dep                                                    # 1.0: the whole face is Departure Mono, a true pixel face
     asc, desc = font.getmetrics()
     dasc, ddesc = dep.getmetrics()
     h = asc + desc
@@ -209,6 +215,7 @@ def main():
         f.write("typedef struct { uint16_t off; uint8_t adv; } sk_glyph_t;   /* adv 0: no glyph */\n")
         f.write("typedef struct { const uint8_t *bits; const sk_glyph_t *g; uint8_t h, base, rb; } sk_font_t;   /* rb: bytes per row (0: 1) */\n\n")
         emit(f, "SK_FONT", ui, h, asc, 2)
+        emit(f, "SK_MICRO", micro_glyphs(), 5, 5, 1)
         f.write("#endif\n")
     print(f"pixfont: {len(ui)} glyphs {h} rows -> {out}")
 

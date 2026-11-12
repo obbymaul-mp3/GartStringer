@@ -69,7 +69,7 @@ static uint32_t sk_in_keys(uint32_t *held) { uint32_t p = hs_kp; *held = hs_keys
 static void sk_led_btn(uint32_t l, uint32_t v) { hs_ledb[l] = (uint8_t)v; }
 static void sk_led_key(uint32_t n, uint32_t v) { hs_ledk[n] = (uint8_t)v; }
 
-static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "SPARE", "CON", "CKEY", "CSCL", "CLAY", "CVOI"};
+static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI"};
 static const char *const BN[SB_N] = {"FX", "SCL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"};
 static const char *const EN[SE_N] = {"SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"};
 static int16_t *wav;

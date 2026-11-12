@@ -181,7 +181,7 @@ static struct {
 static uint32_t gs_gl_len(void)
 {
     static const uint16_t M[5] = {256, 128, 512, 64, 171};          /* of a sixteenth, x 1/256 */
-    uint32_t t = (uint32_t)(((uint64_t)gs_s16() * M[gs.p[P_GLL] % 5u]) >> 8);
+    uint32_t t = (uint32_t)(((uint64_t)gs_s16s() * M[gs.p[P_GLL] % 5u]) >> 8);
     while (t > GS_GLN - 512u)
         t >>= 1;
     return t < 200u ? 200u : t;
@@ -320,7 +320,7 @@ static void gs_space(void)
     sk_f.in = 7000;
     sk_f.dfb = 3000 + (int32_t)gs.p[P_DFB] * 150;                  /* 0.09 .. 0.65 */
     sk_f.dwet = (int32_t)gs.p[P_DLY] * 210;
-    t = (uint32_t)(((uint64_t)gs_s16() * DT[gs.p[P_DTIM] % 6u]) >> 8);
+    t = (uint32_t)(((uint64_t)gs_s16s() * DT[gs.p[P_DTIM] % 6u]) >> 8);
     while (t >= SK_DLN - 64u)
         t >>= 1;
     sk_f.dtgt = (int32_t)(t << 8);
@@ -361,10 +361,11 @@ static void sk_render(int32_t *out, uint32_t n)
     int32_t m[SK_CTL], l[SK_CTL], r[SK_CTL], wl[SK_CTL], wr[SK_CTL], sd[SK_CTL], rv[SK_CTL];
     int32_t gprev, gnew, dg, drive = 256 + (int32_t)gs.p[P_DRV] * 12;
     uint32_t i, crush = gs.p[P_CRU];
+    int32_t top = 23000 - (int32_t)gs.p[P_TAPE] * 125;             /* the master's top: about 9 kHz, down to about 2 kHz as the tape wears */
     static int32_t chold, ccnt;
     if (!sk_f.ready) {
         sk_f.ready = 1;
-        sk_f.dcur = sk_f.dtgt = (int32_t)(gs_s16() << 8);
+        sk_f.dcur = sk_f.dtgt = (int32_t)(gs_s16s() << 8);
         sk_f.master = 2800;
         gl.mute = 32767;
         gs.gate_g = 32767;
@@ -423,10 +424,10 @@ static void sk_render(int32_t *out, uint32_t n)
         sk_f.dc[1] += (b * 256 - sk_f.dc[1]) >> 10;
         a -= sk_f.dc[0] >> 8;
         b -= sk_f.dc[1] >> 8;
-        sk_f.mlow[0] += sk_q15(a - sk_f.mlow[0], 23000);
-        sk_f.mlow[1] += sk_q15(b - sk_f.mlow[1], 23000);
-        sk_f.mlow2[0] += sk_q15(sk_f.mlow[0] - sk_f.mlow2[0], 23000);
-        sk_f.mlow2[1] += sk_q15(sk_f.mlow[1] - sk_f.mlow2[1], 23000);
+        sk_f.mlow[0] += sk_q15(a - sk_f.mlow[0], top);
+        sk_f.mlow[1] += sk_q15(b - sk_f.mlow[1], top);
+        sk_f.mlow2[0] += sk_q15(sk_f.mlow[0] - sk_f.mlow2[0], top);
+        sk_f.mlow2[1] += sk_q15(sk_f.mlow[1] - sk_f.mlow2[1], top);
         a = sk_f.mlow2[0];
         b = sk_f.mlow2[1];
         if (gs_intro_n) {

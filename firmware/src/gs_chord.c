@@ -6,7 +6,9 @@
  * or more); the black keys pick the kind of chord (eleven buttons). Side layout: the seven lowest keys pick the kind, all the
  * others are roots. A root with no button down plays the chord that belongs to the key: the triad you get by stacking thirds
  * on that note inside the scale. Buttons combine (Sus 4 with 7, Minor with Add 9). Lock keeps the buttons you tapped, so they
- * need not be held. Voicing: close or open, with a bass note under it or not.
+ * need not be held. Voicing: close or open, with a bass note under it or not; and the house voicings, which make every chord a
+ * seventh or a ninth over a low root (HOUSE 7, HOUSE 9), a wide shell of root, seventh, tenth and ninth (SHELL), or the same minor
+ * ninth on every root, moved in parallel the way a sampled chord is (PLANE M9).
  *
  * The chord's notes go to the voices the way keys do (gs_key), so the arpeggiator, hold and the sequencer's transposition all
  * work on chords. Included by gs_ui.c. */
@@ -23,7 +25,8 @@ static const char *const CD_SCNAME[CD_NSC] = {"MAJOR", "MINOR", "HARM MIN", "MEL
                                               "LOCRIAN", "PHR DOM", "HUNG MIN", "MIN PENT", "MAJ PENT", "BLUES", "WHOLE", "CHROMA"};
 static const char *const CD_NOTE[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const char *const CD_LAYNAME[4] = {"TOP", "TOP LOCK", "SIDE", "SIDE LCK"};
-static const char *const CD_VOINAME[4] = {"CLOSE", "OPEN", "CLS+BASS", "OPN+BASS"};
+#define CD_NVOI 8
+static const char *const CD_VOINAME[CD_NVOI] = {"CLOSE", "OPEN", "CLS+BASS", "OPN+BASS", "HOUSE 7", "HOUSE 9", "SHELL", "PLANE M9"};
 static const char *const CD_BTN[CB_N] = {"OFF", "AUTO", "MAJ", "MIN", "SUS2", "SUS4", "6", "7", "M7", "ADD9", "5"};
 static const uint8_t CD_TOPBTN[11] = {CB_OFF, CB_AUTO, CB_MAJ, CB_MIN, CB_SUS2, CB_SUS4, CB_6, CB_7, CB_M7, CB_ADD9, CB_POW};
 static const uint8_t CD_SIDEBTN[7] = {CB_AUTO, CB_MAJ, CB_MIN, CB_SUS2, CB_SUS4, CB_7, CB_ADD9};
@@ -170,10 +173,64 @@ static int cd_build(int deg, uint16_t set, uint8_t *out, int *root_pc, uint8_t *
     return n + 1;
 }
 
+/* the house voicings: the chord a root asked for (its intervals in iv, n of them with the root) made into a seventh or a ninth.
+ * nt and iv are written again, low to high; returns the count */
+static int cd_house(int deg, uint8_t *nt, uint8_t *iv, int n, int voi)
+{
+    int root = nt[0], t, f, s7, third = -1, fifth = 7, sev = -1, nin = 14, i, k = 0;
+    cd_auto(deg, &t, &f, &s7);
+    if (cd.m == 7)
+        nin = 12 + ((cd.sc[(deg + 1) % 7] - cd.sc[deg % 7]) % 12 + 12) % 12;
+    if (nin < 13 || nin > 14)
+        nin = 14;
+    for (i = 1; i < n; i++) {                                         /* what the chord has: its third (or the sus note), its fifth, its seventh */
+        int x = iv[i];
+        if ((x == 3 || x == 4 || x == 2 || x == 5) && third < 0)
+            third = x;
+        else if (x == 6 || x == 7 || x == 8)
+            fifth = x;
+        else if (x == 9 || x == 10 || x == 11)
+            sev = x;
+    }
+    if (third < 0)
+        third = t;
+    if (sev < 0)
+        sev = s7;
+    if (voi == 7) {                                                   /* the same shape everywhere */
+        third = 3;
+        fifth = 7;
+        sev = 10;
+        nin = 14;
+    }
+    if (voi == 6) {                                                   /* shell: root, seventh, tenth, ninth above it */
+        iv[k++] = 0;
+        iv[k++] = (uint8_t)sev;
+        iv[k++] = (uint8_t)(third + 12);
+        iv[k++] = (uint8_t)(nin + 12);
+        for (i = 0; i < k; i++)
+            nt[i] = (uint8_t)(root + iv[i]);
+        iv[2] = (uint8_t)third;                                       /* (the name reads them inside an octave, the ninth as a ninth) */
+        iv[3] = 14;
+        return k;
+    }
+    iv[k++] = 0;
+    iv[k++] = (uint8_t)third;
+    iv[k++] = (uint8_t)fifth;
+    iv[k++] = (uint8_t)sev;
+    if (voi != 4)
+        iv[k++] = (uint8_t)nin;
+    nt[0] = (uint8_t)(root >= 24 ? root - 12 : root);                 /* the root goes down an octave; the rest stay where the hand is */
+    for (i = 1; i < k; i++)
+        nt[i] = (uint8_t)(root + iv[i]);
+    return k;
+}
+
 /* the voicing: open lifts the third an octave, bass puts the root an octave under */
 static int cd_voice(uint8_t *nt, int n)
 {
     int voi = gs.p[P_CVOI] & 3, i, j;
+    if ((gs.p[P_CVOI] & 7) >= 4)                                      /* (the house voicings are made in cd_house) */
+        return n;
     if ((voi & 1) && n >= 3) {
         nt[1] = (uint8_t)(nt[1] + 12);
         for (i = 1; i < n; i++) {
@@ -256,6 +313,8 @@ static void cd_press(int k, int deg, uint32_t on)
     int n, rpc, i;
     cd_prepare();
     n = cd_build(deg, cd_set(gs.p[P_CLAY]), nt, &rpc, iv);
+    if ((gs.p[P_CVOI] & 7) >= 4 && n >= 3)
+        n = cd_house(deg, nt, iv, n, gs.p[P_CVOI] & 7);
     {
         char *p = cd.name;
         cd_name(p, rpc, iv, n);

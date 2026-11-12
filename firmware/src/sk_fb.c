@@ -7,8 +7,8 @@
  * ~77 ms, so a still picture costs nothing and the scene's moving parts are what travel. A palette change (a
  * scene's time of day) resends everything. The platform provides sk_lcd(x, y, w, h, pixels).
  *
- * The palette is the look: deep blacks, orange, brushed silver and hints of red. A page picks a theme and the palette
- * blends into it over a second or two. */
+ * The palette is the look, and there are two worlds of it (trance: a cold blue void; house: dusk). A page picks a theme and
+ * the palette blends into it over a second or two. */
 
 #include "sk_fonts.h"
 
@@ -22,7 +22,7 @@ static void sk_pump(void);
 #define FB_TY (FB_H / FB_TS)
 #define FB_PAL 64
 
-/* the palette's indexes: black, an accent ramp (orange; amber in the gate's pages, red in the glitch's), brushed silver,
+/* the palette's indexes: black, an accent ramp (it changes with the world and the page), glass greys,
  * red, a glow of dark reds for the backdrop, and the text */
 enum {
     C_BG = 0,
@@ -38,42 +38,72 @@ enum {
 };
 #define FB_NCOL 46u
 
-#define FB_NTHEME 3
-/* three looks of one palette: magenta (the default), cyan (the gate and the arp) and flame (the glitch); only the accent
- * ramp differs */
+#define FB_NTHEME 6
+/* six looks of one palette: three for each world. TRANCE is a cold void: blue-blacks, electric blue (violet on the pages that
+ * run in time, rose on the glitch). HOUSE is dusk: plum-blacks, amber (mint, orchid). The glass greys, the reds and the battery's
+ * colours are the same in all of them. */
 static const uint32_t SK_THEME[FB_NTHEME][46] = {
-    {   /* magenta */
-        0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x2A0A48, 0x4A1478,
-        0x7A1CA8, 0xB024D0, 0xE030E8, 0xFF58F0, 0xFF90F4, 0xFFC8FA,
-        0x2A2C4A, 0x444870, 0x646A98, 0x868CB8, 0xAAB0D8, 0xCED2F0,
-        0xF0F2FF, 0x3A0A30, 0x701058, 0xA81880, 0xE020A8, 0xFF50D0,
-        0xB8FFFF, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
-        0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
-        0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
-        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    {   /* trance: blue (the instrument) */
+        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x0A1848, 0x102A78,
+        0x1840A8, 0x2060D8, 0x3888F8, 0x60B0FF, 0x98D4FF, 0xD0F0FF,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xF0FAFF, 0x050818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
+        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
+        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
-    {   /* cyan */
-        0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x05283A, 0x084860,
-        0x0C7088, 0x10A0B4, 0x18D0E0, 0x40F0F8, 0x90FAFF, 0xD0FFFF,
-        0x2A2C4A, 0x444870, 0x646A98, 0x868CB8, 0xAAB0D8, 0xCED2F0,
-        0xF0F2FF, 0x3A0A30, 0x701058, 0xA81880, 0xE020A8, 0xFF50D0,
-        0xFFE8FF, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
-        0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
-        0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
-        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    {   /* trance: violet (the gate, the arp, the sequence) */
+        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x1C0A48, 0x341478,
+        0x5420A8, 0x7C30D8, 0xA050F8, 0xC080FF, 0xDCB0FF, 0xF2DCFF,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xF0FAFF, 0x050818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
+        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
+        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
-    {   /* flame */
-        0x0A0614, 0x120A22, 0x1C1032, 0x2A1C48, 0x3A1204, 0x6A2208,
-        0x9C3408, 0xCC4A0C, 0xF26410, 0xFF8418, 0xFFA840, 0xFFD080,
-        0x2A2C4A, 0x444870, 0x646A98, 0x868CB8, 0xAAB0D8, 0xCED2F0,
-        0xF0F2FF, 0x3A0A30, 0x701058, 0xA81880, 0xE020A8, 0xFF50D0,
-        0xFFF0C0, 0x0C0620, 0x160A34, 0x220E4A, 0x341468, 0x4C1C8C,
-        0x6A28B0, 0xF4ECFF, 0x9C90C0, 0x1A0E34, 0x40FFD0, 0x34204C,
-        0x6A2A9C, 0x4A4470, 0x6A6290, 0x1A1230,
-        0x30E060, 0xA0E030, 0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    {   /* trance: rose (the glitch) */
+        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x30081C, 0x580C30,
+        0x881048, 0xB81860, 0xE82C78, 0xFF5C98, 0xFF98BC, 0xFFD0E0,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xF0FAFF, 0x050818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
+        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
+        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    },
+    {   /* house: amber (the instrument) */
+        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x301004, 0x582008,
+        0x88340C, 0xB84C10, 0xE86C1C, 0xFF9438, 0xFFBC70, 0xFFE2B8,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
+        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
+        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    },
+    {   /* house: mint (the gate, the arp, the sequence) */
+        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x05281C, 0x084830,
+        0x0C6C48, 0x109464, 0x20BC84, 0x50DCA8, 0x90F0CC, 0xD0FFEC,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
+        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
+        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
+    },
+    {   /* house: orchid (the glitch) */
+        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x2C0830, 0x501058,
+        0x7C1888, 0xA824B4, 0xD03CD8, 0xEC6CEC, 0xF8A4F8, 0xFFD8FF,
+        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
+        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
+        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
+        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
+        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
+        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
     },
 };
-
 static uint8_t fb[FB_W * FB_H] SK_POOL;
 static uint16_t fb_lut[FB_PAL];                  /* index -> RGB565, byte-swapped as the panel takes it */
 static uint32_t fb_hash[FB_TX * FB_TY];
@@ -357,6 +387,43 @@ static int fb_text_halo(int x, int y, const char *s, uint8_t c, uint8_t halo)
     return fb_text(x, y, s, c);
 }
 
+/* the small face: 3 x 5 capitals and digits, for the labels (lower case is drawn as capitals; what it has no glyph for is a gap) */
+static int fb_micro_adv(uint8_t ch)
+{
+    if (ch >= 'a' && ch <= 'z' && !SK_MICRO.g[ch].adv)
+        ch = (uint8_t)(ch - 32);
+    return SK_MICRO.g[ch].adv ? SK_MICRO.g[ch].adv : 4;
+}
+static int fb_micro_w(const char *s, int track)
+{
+    int w = 0;
+    for (; *s; s++)
+        w += fb_micro_adv((uint8_t)*s) + track;
+    return w ? w - track - 1 : 0;
+}
+static int fb_micro(int x, int y, const char *s, uint8_t c, int track)
+{
+    int x0 = x;
+    for (; *s; s++) {
+        uint8_t ch = (uint8_t)*s;
+        const sk_glyph_t *g;
+        int r, i;
+        if (ch >= 'a' && ch <= 'z' && !SK_MICRO.g[ch].adv)
+            ch = (uint8_t)(ch - 32);
+        g = &SK_MICRO.g[ch];
+        if (g->adv) {
+            const uint8_t *b = SK_MICRO.bits + g->off;
+            for (r = 0; r < 5; r++)
+                for (i = 0; i < 6; i++)
+                    if (b[r] & (0x80u >> i))
+                        fb_pset(x + i, y + r, c);
+        }
+        x += fb_micro_adv((uint8_t)*s) + track;
+    }
+    return x - x0;
+}
+static int fb_micro_c(int cx, int y, const char *s, uint8_t c, int track) { return fb_micro(cx - fb_micro_w(s, track) / 2, y, s, c, track); }
+static int fb_micro_r(int xr, int y, const char *s, uint8_t c, int track) { return fb_micro(xr - fb_micro_w(s, track), y, s, c, track); }
 /* ------------------------------------------------------------- present --- */
 static uint32_t fb_tile_hash(int tx, int ty)
 {
