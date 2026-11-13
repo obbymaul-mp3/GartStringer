@@ -320,7 +320,10 @@ static void cd_press(int k, int deg, uint32_t on)
         cd_name(p, rpc, iv, n);
     }
     n = cd_voice(nt, n);
-    if (gs.srun) {                                                   /* the sequence runs: the root moves it */
+    if (gs.srun && gs.srec && on) {                                  /* recording: the root is written on its step (the chord is made again when it plays), the chord sounds */
+        if (gs.scount <= 1u)
+            gs_seq_rec((uint32_t)cd_pitch(deg));
+    } else if (gs.srun) {                                            /* the sequence runs: the root moves it */
         nt[0] = (uint8_t)cd_pitch(deg);
         n = 1;
     }
@@ -329,12 +332,49 @@ static void cd_press(int k, int deg, uint32_t on)
         cd.shown[cd.nshown++] = nt[i];
     cd.sdeg = (int8_t)deg;
     cd.sounding = 1;
+    gs_norec = 1;                                                    /* (its notes are not steps of their own) */
     for (i = 0; i < n; i++) {
         cd.kn[k][i] = nt[i];
         if (on)
             gs_key(nt[i], 1);
     }
+    gs_norec = 0;
     cd.kc[k] = (uint8_t)n;
+}
+
+/* the sequencer asks: the chord on this note, as the instrument is set now. The note is taken as a root in the key (one outside the
+ * scale counts as the scale note under it); the chord buttons held or locked shape it as they do a key's. */
+static int cd_seq_notes(int note, uint8_t *out)
+{
+    uint8_t nt[8], iv[8];
+    int rel, o, pc, i, deg, n, rpc, up = 0;
+    cd_prepare();
+    rel = note - (48 + 12 * gs.oct + (int)gs.p[P_CKEY] % 12);
+    while (rel < 0) {                                                /* (under the instrument's lowest root: built an octave or more up, then put back) */
+        rel += 12;
+        up++;
+    }
+    o = rel / 12;
+    pc = rel % 12;
+    for (i = (int)cd.m - 1; i > 0 && cd.sc[i] > pc; i--)
+        ;
+    deg = o * (int)cd.m + i;
+    n = cd_build(deg, cd_set(gs.p[P_CLAY]), nt, &rpc, iv);
+    if ((gs.p[P_CVOI] & 7) >= 4 && n >= 3)
+        n = cd_house(deg, nt, iv, n, gs.p[P_CVOI] & 7);
+    cd_name(cd.name, rpc, iv, n);
+    n = cd_voice(nt, n);
+    if (n > 6)
+        n = 6;
+    cd.nshown = 0;
+    for (i = 0; i < n; i++) {
+        int v = (int)nt[i] - 12 * up;
+        out[i] = (uint8_t)(v < 0 ? 0 : v > 120 ? 120 : v);
+        cd.shown[cd.nshown++] = out[i];
+    }
+    cd.sdeg = (int8_t)deg;
+    cd.sounding = 1;
+    return n;
 }
 
 static void cd_release(int k)

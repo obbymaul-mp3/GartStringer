@@ -139,6 +139,7 @@ static struct {
     int8_t snote;                        /* the note sounding, -1 none */
     uint8_t sroot;                       /* the note a step of 12 plays (the keys move it while it runs) */
     uint32_t sclk, soff;                 /* samples into the step, and when its note ends */
+    uint8_t sch[6], schn;                /* the notes the sequence has sounding: one, or a chord's */
     uint32_t wow_ph, flu_ph;             /* the tape: its slow wow and quick flutter */
     int32_t tape_pq;                     /* .. the pitch they add now, Q8 semitones */
     uint32_t met_ph, met_inc;            /* the metronome's click: phase, step */
@@ -744,14 +745,25 @@ static int32_t gs_click_sample(void)                               /* one sample
     return (v * (int32_t)(m * 2u + 2u)) >> 4;
 }
 
+/* With the chords on, a step's note is the root of a chord: the chord instrument gives its notes through this (it returns how
+ * many, up to six). Unset, a step is one note. gs_norec: a key that should sound but not be written (a chord's own notes). */
+static int (*gs_seq_chord)(int note, uint8_t *out);
+static uint8_t gs_norec;
+static void gs_seq_off(void)                                       /* what the sequence has sounding, let go */
+{
+    uint32_t i;
+    for (i = 0; i < gs.schn; i++)
+        gs_note_off(gs.sch[i]);
+    gs.schn = 0;
+    gs.snote = -1;
+}
+
 static void gs_seq_stop(void)
 {
     gs.srun = 0;
     gs.scount = 0;
     gs.srec = 0;
-    if (gs.snote >= 0)
-        gs_note_off((uint32_t)gs.snote);
-    gs.snote = -1;
+    gs_seq_off();
     gs.sslide = 0;
     gs.pnext = 255;
 }
@@ -812,17 +824,32 @@ static void gs_seq_step(void)
     }
     gs.sslide = (uint8_t)(SP_ON(f) && SP_SLD(f));
     if (SP_ON(f)) {
-        int note = (int)gs.sroot + SP_NOTE(f) - 12;
+        int note = (int)gs.sroot + SP_NOTE(f) - 12, n = 1, i, j;
+        uint8_t nn[6], was[6], nwas = gs.schn;
         note = note < 0 ? 0 : note > 120 ? 120 : note;
-        gs_note_on((uint32_t)note, SP_ACC(f) ? 127u : 92u);
-        if (old >= 0 && !(oldslide && old == note))                /* the note before ends as this one starts (a slide into the same note just goes on) */
-            gs_note_off((uint32_t)old);
+        nn[0] = (uint8_t)note;
+        if (gs.p[P_CON] && gs_seq_chord)                           /* the chords are on: the step's note is a root, and its chord plays */
+            n = gs_seq_chord(note, nn);
+        if (n < 1 || n > 6)
+            n = 1;
+        if (!(old >= 0 && oldslide && old == note)) {              /* (a slide into the same note just goes on) */
+            for (i = 0; i < (int)nwas; i++)
+                was[i] = gs.sch[i];
+            for (i = 0; i < n; i++)
+                gs_note_on(nn[i], SP_ACC(f) ? 127u : 92u);
+            for (j = 0; j < (int)nwas; j++) {                      /* what sounded before ends as this starts, but for the notes they share */
+                for (i = 0; i < n && nn[i] != was[j]; i++)
+                    ;
+                if (i == n)
+                    gs_note_off(was[j]);
+            }
+            for (i = 0; i < n; i++)
+                gs.sch[i] = nn[i];
+            gs.schn = (uint8_t)n;
+        }
         gs.snote = (int8_t)note;
-    } else {
-        if (old >= 0)
-            gs_note_off((uint32_t)old);
-        gs.snote = -1;
-    }
+    } else if (old >= 0)
+        gs_seq_off();
 }
 
 /* a key played while recording: it is written on the step nearest in time, and sounds as usual */
@@ -912,10 +939,8 @@ static void gs_tick(uint32_t n)
         else {
             uint32_t len;
             gs.sclk += nq;
-            if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff) {
-                gs_note_off((uint32_t)gs.snote);
-                gs.snote = -1;
-            }
+            if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff)
+                gs_seq_off();
             while (gs.sclk >= (len = gs_seq_len())) {              /* a step ends: what ran over it is kept, so the steps never lose time */
                 gs.sclk -= len;
                 gs_seq_step();
@@ -960,7 +985,7 @@ static void gs_del(uint32_t note)
 static void gs_key(uint32_t note, int down)
 {
     if (gs.srun && gs.srec) {                                      /* recording: the key sounds and is written where it falls */
-        if (down && gs.scount <= 1u)                               /* (a key a little early for the first downbeat is step 1) */
+        if (down && gs.scount <= 1u && !gs_norec)                  /* (a key a little early for the first downbeat is step 1) */
             gs_seq_rec(note);
     } else if (gs.srun) {                                          /* while the sequence runs a key moves it: the key is the note step 12 plays */
         if (down)

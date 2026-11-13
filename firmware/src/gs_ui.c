@@ -397,6 +397,7 @@ static void ui_init(uint32_t safe)
     for (i = 0; i < 4u; i++)
         ui.k_t[i] = 0;
     ui.page = PG_HOME;
+    gs_seq_chord = cd_seq_notes;
     ui.wlast[0] = 0;
     ui.wlast[1] = GS_NTRANCE;
     ui.theme_on = 99;
@@ -550,13 +551,20 @@ static void ui_input(uint32_t now)
         if (on && !ui.keys_down[i]) {
             ui.keys_down[i] = (uint8_t)note;
             if (ui.page == PG_SEQ && !gs.srun) {                    /* stopped, on the sequencer's page: a key writes the step (key 13 is the root) */
-                int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36);
-                gs.sp[gs.pcur][ui.cur] = (uint8_t)((gs.sp[gs.pcur][ui.cur] & 0xC0u) | (uint8_t)(n + 1));
-                ui_seq_grow(now);
-                ui.cur = (uint8_t)ui_clamp((int)ui.cur + 1, 0, GS_NS - 1);
-                ui.cur_t = now;
+                int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36), v = 0, wr = 1;
+                if (gs.p[P_CON]) {                                  /* the chords are on: a root key writes its root (the step plays its chord), a chord button writes nothing */
+                    cd_prepare();
+                    wr = cd_role((int)i, gs.p[P_CLAY], &v) == 2;
+                    n = ui_clamp(cd_pitch(v) - ((int)gs.sroot - 12), 0, 36);
+                }
+                if (wr) {
+                    gs.sp[gs.pcur][ui.cur] = (uint8_t)((gs.sp[gs.pcur][ui.cur] & 0xC0u) | (uint8_t)(n + 1));
+                    ui_seq_grow(now);
+                    ui.cur = (uint8_t)ui_clamp((int)ui.cur + 1, 0, GS_NS - 1);
+                    ui.cur_t = now;
+                }
             }
-            if (gs.p[P_CON] && !(ui.page == PG_SEQ && !gs.srun)) {
+            if (gs.p[P_CON]) {
                 ui.kchord[i] = 1;
                 cd_key((int)i, 1);
             } else
