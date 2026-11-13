@@ -1,6 +1,12 @@
 {
  "releases": [
   {
+   "version": "1.0.1",
+   "tag": "v1.0.1",
+   "date": "2026-11-13",
+   "sha256": "f024f3dacd4dc23dc6511054ef9a2fb936802a6da8ae845bcabfdc8519620a2e"
+  },
+  {
    "version": "1.0.0",
    "tag": "v1.0.0",
    "date": "2026-11-12",
