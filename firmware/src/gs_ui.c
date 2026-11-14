@@ -839,8 +839,8 @@ static void vz_back(uint32_t now)
         }
         fb_hline(VX, VY + 8, VW, C_B2);                                      /* the roof's edge */
     } else if (world == 3) {                                                 /* garage: a city at night, windows lit, a moon */
-        fb_disc(VX + VW - 40, VY + 12, 7, C_S5);
-        fb_disc(VX + VW - 37, VY + 10, 6, C_B2);
+        fb_disc(VX + VW / 2 + 34, VY + 11, 7, C_S5);
+        fb_disc(VX + VW / 2 + 37, VY + 9, 6, C_B2);
         for (i = 0; i < 18; i++) {
             uint32_t h = ui_hash((uint32_t)i * 9176u + 11u);
             int x = VX + 2 + i * 12 + (int)(h & 3u), bw = 8 + (int)((h >> 3) & 3u), bh = 6 + (int)((h >> 6) % 18u), yy, xx;
