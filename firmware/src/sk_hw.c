@@ -51,6 +51,27 @@ void fm1_timer5_irq(void)
         return;                                        /* nested in a render: the next tick polls (owed stays) */
     owed = 0;
     usb_poll();
+    uart_midi_poll();                                  /* the MIDI IN jack: its bytes into the same ring as USB's */
+}
+
+/* What MIDI has brought, from the jack or USB, taken between halves of audio: the clock's ticks, Start, Continue and Stop go to
+ * the tempo (gs_synth.c gs_ext_*); the rest is let go. If the ring ran over, it is emptied. */
+static void sk_midi_drain(void)
+{
+    while (mi_r != mi_w) {
+        uint32_t pkt = midi_in_q[mi_r % MQ], st = (pkt >> 8) & 0xFFu;
+        mi_r++;
+        if (st == 0xF8u)
+            gs_ext_tick();
+        else if (st == 0xFAu || st == 0xFBu)
+            gs_ext_start();
+        else if (st == 0xFCu)
+            gs_ext_stop();
+    }
+    if (midi_in_overflow) {
+        mi_r = mi_w;
+        midi_in_overflow = 0;
+    }
 }
 
 /* The converter's real rate. Each half buffer is 128 samples; TIMER4 counts the 24 MHz crystal. Over 2048 halves (about six
@@ -100,6 +121,7 @@ void fm1_alnk0_irq(void)
         uint32_t half, b, i, us, load;
         int32_t *o;
         sk_rate_tick(t0);
+        sk_midi_drain();
         fm1_audio_ack_half();                          /* before the render: a boundary passing during it keeps its interrupt */
         half = fm1_audio_free_half();
         o = &abuf[half * HALF_WORDS];
@@ -402,6 +424,7 @@ static void sk_main(void)
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);
     CR_STAGE_SET(BS_IRQ);
     usb_start();                           /* the USB-MIDI interface, polled from TIMER5 (the installer page finds the unit through it) */
+    uart_midi_init();                      /* the MIDI IN jack (before TIMER5 starts: it shares a port with the panel's scan) */
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();

@@ -96,6 +96,48 @@ static int rec(int bpm)
     return bad != 0;
 }
 
+/* an outside clock: ticks at a tempo that is no whole BPM, handed over at the start of each 128-sample half (as the hardware does);
+ * the sequence must take exactly one step every six ticks, close to where the tick fell */
+static int ext(double bpm)
+{
+    double per = 44100.0 * 60.0 / bpm / 24.0, next = 0.0, worst = 0.0;
+    int32_t buf[2 * SK_CTL];
+    uint32_t i, total = 44100u * 300u, ticks = 0, steps = 0, bad = 0;
+    uint8_t ls = 255;
+    gs_init();
+    gs_load(0);
+    gs.bpm = 120;
+    gs_rate = 44100000u;
+    sk_f.ready = 0;
+    memset(&gs_ext, 0, sizeof gs_ext);
+    gs_ext_start();
+    for (i = 0; i < total; i += SK_CTL) {
+        if ((i & 127u) == 0u)
+            while (next <= (double)i) {
+                gs_ext_tick();
+                ticks++;
+                next += per;
+            }
+        sk_render(buf, SK_CTL);
+        if (gs.srun && gs.sstep != ls) {
+            double ideal = (double)steps * 6.0 * per, e = (double)i - ideal;
+            ls = gs.sstep;
+            if (steps > 64u && fabs(e) > worst)
+                worst = fabs(e);
+            if (getenv("CKDBG") && (steps < 12u || (steps % 400u) == 0u)) printf("  step %u e %.0f samples bpm %u pend %d per %u\n", steps, e, gs.bpm, gs_ext.pend, gs_ext.per >> 8);
+            steps++;
+        }
+    }
+    if (labs((long)steps - (long)((ticks + 5u) / 6u)) > 1)
+        bad |= 1;
+    if (worst > 44100.0 * 0.006)
+        bad |= 2;
+    printf("outside clock at %.1f bpm: %u ticks, %u steps (want %u), worst step %.1f ms from its tick, shows %u bpm: %s\n", bpm, ticks, steps, (ticks + 5u) / 6u,
+           worst * 1000.0 / 44100.0, gs.bpm, bad ? "FAIL" : "ok");
+    gs_ext.on = 0;
+    return bad != 0;
+}
+
 int main(void)
 {
     static const int B[] = {60, 97, 120, 124, 128, 133, 138, 140, 174};
@@ -106,6 +148,9 @@ int main(void)
     bad |= run(128, 80, 44100000u, 0);
     bad |= run(128, 0, 44117300u, 0);
     bad |= run(128, 0, 44100000u, 1);
+    bad |= ext(126.3);
+    bad |= ext(140.0);
+    bad |= ext(87.5);
     bad |= rec(124);
     bad |= rec(138);
     printf(bad ? "CLOCK FAIL\n" : "clock ok\n");

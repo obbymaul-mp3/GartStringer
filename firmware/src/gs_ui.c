@@ -80,7 +80,7 @@ static struct {
     uint8_t intro;
     uint32_t intro_t;
     uint8_t flash;                       /* a patch change: counts down */
-    uint8_t wlast[2];                    /* the patch last used in each world (ALGORITHM on the home page swaps worlds) */
+    uint8_t wlast[GS_NWORLD];            /* the patch last used in each world (ALGORITHM on the home page steps through the worlds) */
     uint8_t rec_seen;                    /* gs.rec_n as last seen: a change flashes the step written */
     uint32_t rec_t;                      /* when */
 } ui;
@@ -125,9 +125,15 @@ static char *ui_str(char *p, const char *s)
     return p;
 }
 
-/* the world a patch belongs to: 0 trance (patches 1..32), 1 house (33..48). It sets the look and nothing else. */
-static int ui_world(void) { return gs.preset >= GS_NTRANCE; }
-static const char *const UI_WORLD[2] = {"TRANCE", "HOUSE"};
+/* the world a patch belongs to: trance (the first 32 patches), house, techno, garage (16 each). It sets the look and nothing else. */
+static int ui_world(void)
+{
+    int w = 0;
+    while (w < GS_NWORLD - 1 && gs.preset >= GS_W0[w + 1])
+        w++;
+    return w;
+}
+static const char *const UI_WORLD[GS_NWORLD] = {"TRANCE", "HOUSE", "TECHNO", "GARAGE"};
 
 #include "gs_chord.c"
 
@@ -398,8 +404,11 @@ static void ui_init(uint32_t safe)
         ui.k_t[i] = 0;
     ui.page = PG_HOME;
     gs_seq_chord = cd_seq_notes;
-    ui.wlast[0] = 0;
-    ui.wlast[1] = GS_NTRANCE;
+    {
+        uint32_t w;
+        for (w = 0; w < GS_NWORLD; w++)
+            ui.wlast[w] = GS_W0[w];
+    }
     ui.theme_on = 99;
     fb_theme_snap(0);
     ui.theme_on = 0;
@@ -608,12 +617,10 @@ static void ui_input(uint32_t now)
         }
         ui.k_t[0] = now;
     } else if (d && UI_PG[ui.page].algo == 254u) {                 /* the home page: the other world, on the patch last used there */
-        int w = ui_world(), to = d > 0 ? 1 : 0;
-        if (to != w) {
-            ui.wlast[w] = gs.preset;
-            ui_load_patch(ui.wlast[to], now);
-            ui_toast(UI_WORLD[to], now);
-        }
+        int w = ui_world(), to = (w + (d > 0 ? 1 : GS_NWORLD - 1)) % GS_NWORLD;   /* the next world round, or the one before */
+        ui.wlast[w] = gs.preset;
+        ui_load_patch(ui.wlast[to], now);
+        ui_toast(UI_WORLD[to], now);
         ui.k_t[0] = now;
     } else if (d && UI_PG[ui.page].algo != 255u) {
         uint32_t idx = UI_PG[ui.page].algo;
@@ -805,7 +812,7 @@ static uint32_t ui_hash(uint32_t x);
  * that run toward you at the tempo. HOUSE: dusk, a low sun cut by slats, the same floor in its colours. */
 static void vz_back(uint32_t now)
 {
-    int i, hy = VY + 32, cx = VX + VW / 2, fh = VY + VH - hy, house = ui_world();
+    int i, hy = VY + 32, cx = VX + VW / 2, fh = VY + VH - hy, world = ui_world(), house = world == 1;
     uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
     fb_rect(VX, VY, VW, VH, C_BG);
     for (i = 0; i < 6; i++)                                                  /* the sky gathers light toward the horizon */
@@ -817,6 +824,32 @@ static void vz_back(uint32_t now)
             if (k < 13 && k % 4 == 3)
                 continue;
             fb_hline(cx - hw, hy - 1 - k, 2 * hw, (uint8_t)(C_O2 + k / 5));
+        }
+    } else if (world == 2) {                                                 /* techno: a hall of strip lights running away either side, one of them lit on each beat */
+        fb_rect(VX, VY, VW, hy - VY, C_BG);
+        for (i = 1; i <= 7; i++) {
+            int dx = 8 + i * i * 2, top = hy - 4 - i * 3, lit = ((gs.beat >> 2) % 7u) == (uint32_t)(7 - i);
+            uint8_t c = lit ? C_HOT : (uint8_t)(i > 4 ? C_O2 : C_O1);
+            fb_vline(cx - dx, top, hy - top, c);
+            fb_vline(cx + dx, top, hy - top, c);
+            if (lit) {
+                fb_vline(cx - dx - 1, top, hy - top, C_O4);
+                fb_vline(cx + dx + 1, top, hy - top, C_O4);
+            }
+        }
+        fb_hline(VX, VY + 8, VW, C_B2);                                      /* the roof's edge */
+    } else if (world == 3) {                                                 /* garage: a city at night, windows lit, a moon */
+        fb_disc(VX + VW - 40, VY + 12, 7, C_S5);
+        fb_disc(VX + VW - 37, VY + 10, 6, C_B2);
+        for (i = 0; i < 18; i++) {
+            uint32_t h = ui_hash((uint32_t)i * 9176u + 11u);
+            int x = VX + 2 + i * 12 + (int)(h & 3u), bw = 8 + (int)((h >> 3) & 3u), bh = 6 + (int)((h >> 6) % 18u), yy, xx;
+            fb_rect(x, hy - bh, bw, bh, C_K1);
+            fb_hline(x, hy - bh, bw, C_B4);
+            for (yy = hy - bh + 3; yy < hy - 2; yy += 4)
+                for (xx = x + 2; xx < x + bw - 1; xx += 3)
+                    if ((ui_hash((uint32_t)(xx * 31 + yy * 17)) & 3u) == 0u)
+                        fb_pset(xx, yy, ((ui_hash((uint32_t)(xx + yy * 7)) + (now >> 10)) & 15u) == 0u ? C_HOT : C_O5);
         }
     } else {
         for (i = 0; i < 26; i++) {                                           /* stars: fixed, a few of them twinkling */
@@ -882,6 +915,9 @@ static int vz_tower_h(int mode, int j, uint32_t now, int det, int col, int fbk)
         break;
     }
     case 7: h = 6 + (SK_SIN[(ph * 2u) & 511u] * 26) / 32768; break;                                      /* a ball that is struck and bounces */
+    case 8: h = 14 + (int)(ui_hash((uint32_t)j * 77u + (now >> 7)) % (uint32_t)(10 + col / 3)) + (j & 1) * 12; break;   /* metal: shards that jitter */
+    case 9: h = 4 + (int)(ui_hash((uint32_t)j * 131u + (now >> 5)) % 44u); break;                         /* noise: every bar somewhere new, all the time */
+    case 10: h = 30 + SK_SIN[(ph / 3u + (uint32_t)j * 512u) & 1023u] * (8 + det / 6) / 32768; break;      /* reese: two slow masses leaning against each other */
     default: h = 30 + SK_SIN[(ph + (uint32_t)(SK_SIN[(ph * 2u) & 1023u] * fbk / 32768)) & 1023u] * 24 / 32768; break;
     }
     return h < 6 ? 6 : h;
@@ -889,7 +925,7 @@ static int vz_tower_h(int mode, int j, uint32_t now, int det, int col, int fbk)
 
 static void vz_towers(uint32_t now)
 {
-    static const uint8_t NT[GS_NMODE] = {7, 6, 3, 3, 5, 5, 6, 3};
+    static const uint8_t NT[GS_NMODE] = {7, 6, 3, 3, 5, 5, 6, 3, 4, 7, 3};
     int mode = gs.p[P_MODE] % GS_NMODE, n = NT[mode], j, det = ui_lv(P_DET), mix = ui_lv(P_MIX), col = ui_lv(P_COL);
     int sp = 190 / n, wpx = n > 5 ? 13 : (n > 3 ? 18 : 28), bias = gs.level > 14 ? 2 : 0;
     g3_cam(VX + VW / 2, VY + 60, 250, 250, 40);
@@ -899,6 +935,8 @@ static void vz_towers(uint32_t now)
             w = wpx * (70 + mix) / 120;
         if (mode == 5)                                                             /* FM keys: gems that ring */
             g3_draw(&G3_OCT, (j - 2) * sp, h - 2, 0, 4, 7, 4, 0, (int)(now >> 3) + j * 120, 0, C_O0, 8, bias, C_O6);
+        else if (mode == 8)                                                        /* metal: thin blades */
+            g3_draw(&G3_PYR, (j * 2 - 3) * sp / 2, h / 2, 0, 3, h / 4 + 1, 5, 0, (int)(now >> 3) + j * 200, 0, C_O0, 8, bias, C_HOT);
         else if (mode == 7)                                                        /* donk: three balls bouncing a ratio apart */
             g3_draw(&G3_ICO, (j - 1) * sp, h + 6, 0, 6, 6 - (h < 12 ? (12 - h) / 3 : 0), 6, (int)(now >> 3), (int)(now >> 4) + j * 90, 0, C_O0, 8, bias, j == 1 ? C_HOT : C_O6);
         else
@@ -1662,7 +1700,7 @@ static void ui_header(uint32_t now)
     fb_text_c(120, 3, "GARTSTRINGER", C_INK);
     ui_num(b, gs.bpm);
     fb_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_O6);
-    fb_micro(202, 9, "BPM", C_S4, 0);
+    fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_S4, 0);        /* (EXT: the tempo is an outside clock's) */
     ui_battery(228, 10, now);
     fb_hline(0, 21, 240, C_K3);                                                      /* the streak */
     fb_hline(40, 21, 160, C_O2);
@@ -1674,7 +1712,7 @@ static void ui_header(uint32_t now)
 static void ui_status(uint32_t now)
 {
     char b[28], *p;
-    int i, w = ui_world(), num = (int)gs.preset + 1 - (w ? GS_NTRANCE : 0);
+    int i, w = ui_world(), num = (int)gs.preset + 1 - (int)GS_W0[w];
     b[0] = (char)('0' + num / 10);
     b[1] = (char)('0' + num % 10);
     b[2] = 0;

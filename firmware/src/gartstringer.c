@@ -36,6 +36,7 @@
 #include "libc.c"
 #include "lcd.c"
 #include "usb.c"
+#include "midi_uart.c"
 #include "ota.c"
 
 #include "gs_synth.c"

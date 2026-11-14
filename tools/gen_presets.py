@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# GartStringer: the 48 factory patches (32 trance, then 16 house) (firmware/src/gs_presets.h), written as differences from a plain supersaw.
+# GartStringer: the 80 factory patches (32 trance, then 16 each of house, techno and garage) (firmware/src/gs_presets.h), written as differences from a plain supersaw.
 #   python3 tools/gen_presets.py > firmware/src/gs_presets.h
 import sys
 
@@ -14,7 +14,7 @@ BASE = dict(MODE=0, DET=54, MIX=64, SUB=0, COL=60, OCT=2, CUT=80, RES=30, FENV=4
             APAT=0, ARATE=2, ARNG=1, AGATE=90, AON=0, GLP=0, GLL=0, GLT=0, CRU=0,
             SRATE=1, SMET=0, SSWG=0, SGATE=70, TAPE=0,
             CON=0, CKEY=0, CSCL=1, CLAY=1, CVOI=0)
-# modes: 0 supersaw 1 hypersync 2 pwm 3 roll bass 4 feedback 5 fm keys 6 organ 7 donk; filters: 0 lp12 1 lp24 2 band 3 high 4 vowel
+# modes: 0 supersaw 1 hypersync 2 pwm 3 roll bass 4 feedback 5 fm keys 6 organ 7 donk 8 metal 9 noise 10 reese; filter 5 = acid; filters: 0 lp12 1 lp24 2 band 3 high 4 vowel
 # lfo dest: 0 pitch 1 filter 2 amp 3 colour 4 detune; shapes: 0 sine 1 tri 2 square 3 s+h; voice: 0 poly 1 mono 2 legato
 # echo: 0 1/16 1 1/8 2 dotted 1/8 3 1/4 4 1/8T 5 3/16; arp: 0 up 1 down 2 updown 3 random 4 played 5 chord 6 bounce 7 rolling
 # arp rate: 0 1/8 1/8T 1/16 1/16T 1/32; gate rate: 0 1/8 1 1/16 2 1/32 3 1/16T; gate patterns: see gs_synth.c
@@ -76,6 +76,40 @@ P = [
  ("Night Bus", 120, dict(MODE=4, DET=26, MIX=50, COL=34, CUT=78, RES=24, FTYPE=1, FENV=30, AA=10, AD=70, AS=96, AR=70, GLIDE=30, VMODE=2, LRATE=46, LAMT=20, CHOR=80, DLY=60, DTIM=2, DFB=60, REV=84, RSZ=96, TAPE=70)),
  ("Vowel Talk", 126, dict(MODE=3, DET=30, MIX=60, SUB=20, COL=60, OCT=2, CUT=40, RES=80, FTYPE=4, FENV=90, AA=0, AD=44, AS=60, AR=30, FA=0, FD=56, FS=10, VMODE=1, GLIDE=14, CHOR=40, DLY=30, DTIM=2, DFB=46, REV=30, RSZ=60, DRV=70, SSWG=50)),
  ("Swung Pluck", 124, dict(MODE=2, DET=30, MIX=60, COL=56, CUT=78, RES=34, FENV=74, AA=0, AD=42, AS=8, AR=36, FA=0, FD=40, FS=4, AON=1, APAT=4, ARATE=2, ARNG=2, AGATE=50, CHOR=70, DLY=62, DTIM=2, DFB=60, REV=64, RSZ=84, TAPE=30, SSWG=60)),
+ # ================= TECHNO (49..64): acid, metal, drones, noise
+ ("Acid Line", 134, dict(MODE=3, DET=0, MIX=20, SUB=0, COL=30, OCT=1, CUT=44, RES=104, FTYPE=5, FENV=84, KEY=20, AA=0, AD=46, AS=30, AR=20, FA=0, FD=40, FS=0, FR=20, VMODE=2, GLIDE=22, CHOR=0, DLY=30, DTIM=2, DFB=46, REV=14, RSZ=40, DRV=44)),
+ ("Acid Square", 136, dict(MODE=2, DET=0, MIX=0, COL=64, OCT=1, CUT=40, RES=110, FTYPE=5, FENV=96, AA=0, AD=40, AS=40, AR=18, FA=0, FD=34, FS=0, VMODE=2, GLIDE=26, CHOR=0, DLY=36, DTIM=4, DFB=50, REV=12, RSZ=40, DRV=56)),
+ ("Hoover Acid", 138, dict(MODE=1, DET=40, MIX=60, COL=40, OCT=2, CUT=52, RES=90, FTYPE=5, FENV=70, AA=0, AD=60, AS=70, AR=30, FA=2, FD=56, FS=10, VMODE=2, GLIDE=34, CHOR=40, DLY=30, DTIM=2, REV=30, RSZ=60, DRV=50)),
+ ("Warehouse Stab", 132, dict(MODE=0, DET=50, MIX=90, CUT=70, RES=30, FTYPE=1, FENV=60, AA=0, AD=40, AS=0, AR=34, FA=0, FD=36, FS=0, CHOR=40, DLY=44, DTIM=2, DFB=56, REV=60, RSZ=84, DRV=30)),
+ ("Metal Stab", 134, dict(MODE=8, DET=20, MIX=50, COL=36, CUT=96, RES=20, FENV=30, AA=0, AD=44, AS=0, AR=40, FA=0, FD=38, FS=0, CHOR=20, DLY=50, DTIM=2, DFB=60, REV=50, RSZ=76, DRV=20)),
+ ("Bell Factory", 130, dict(MODE=8, DET=40, MIX=90, COL=84, CUT=110, RES=10, FENV=10, AA=0, AD=70, AS=10, AR=64, FA=0, FD=60, FS=6, CHOR=30, DLY=60, DTIM=2, DFB=62, REV=80, RSZ=100)),
+ ("Rumble", 132, dict(MODE=10, DET=30, MIX=110, SUB=60, OCT=1, CUT=30, RES=30, FENV=20, AA=4, AD=70, AS=110, AR=50, VMODE=1, GPAT=14, GRATE=1, GDEP=110, GSMO=60, CHOR=0, DLY=20, DTIM=2, DFB=40, REV=70, RSZ=110, DRV=50)),
+ ("Drone Hall", 128, dict(MODE=4, DET=40, MIX=80, COL=60, OCT=1, CUT=50, RES=36, FTYPE=1, FENV=10, AA=80, AD=90, AS=120, AR=110, LRATE=6, LAMT=70, LDST=1, CHOR=60, DLY=40, DTIM=3, DFB=60, REV=110, RSZ=120, DRV=0)),
+ ("Hiss Sweep", 132, dict(MODE=9, MIX=0, COL=100, OCT=3, CUT=30, RES=70, FTYPE=2, FENV=0, AA=60, AD=80, AS=120, AR=80, LRATE=4, LAMT=120, LDST=1, LSHP=1, CHOR=40, DLY=50, DTIM=3, DFB=60, REV=80, RSZ=100, DRV=40)),
+ ("Noise Pulse", 136, dict(MODE=9, MIX=30, COL=40, OCT=2, CUT=80, RES=60, FTYPE=2, FENV=50, AA=0, AD=30, AS=0, AR=20, FA=0, FD=30, FS=0, AON=1, APAT=0, ARATE=2, ARNG=1, AGATE=30, CHOR=0, DLY=40, DTIM=4, DFB=50, REV=40, RSZ=70)),
+ ("Sync Lead", 138, dict(MODE=1, DET=20, MIX=70, COL=90, CUT=90, RES=40, FENV=50, AA=0, AD=60, AS=90, AR=40, VMODE=2, GLIDE=20, LRATE=40, LAMT=60, LDST=3, CHOR=30, DLY=50, DTIM=2, DFB=56, REV=40, RSZ=70, DRV=40)),
+ ("Dub Chord", 126, dict(MODE=0, DET=30, MIX=60, CUT=56, RES=40, FTYPE=2, FENV=50, AA=0, AD=46, AS=0, AR=40, FA=0, FD=44, FS=0, CHOR=50, DLY=96, DTIM=5, DFB=90, REV=70, RSZ=100, CON=1, CSCL=1, CVOI=4, TAPE=30)),
+ ("Dub Stab Dark", 124, dict(MODE=2, DET=26, MIX=40, COL=50, CUT=44, RES=50, FTYPE=1, FENV=64, AA=0, AD=50, AS=0, AR=44, FA=0, FD=50, FS=0, CHOR=40, DLY=100, DTIM=5, DFB=96, REV=84, RSZ=110, CON=1, CSCL=1, CVOI=6, TAPE=44)),
+ ("Pulse Bass", 134, dict(MODE=2, DET=4, MIX=0, SUB=50, COL=30, OCT=1, CUT=56, RES=40, FENV=50, AA=0, AD=36, AS=50, AR=16, FA=0, FD=30, FS=0, VMODE=1, CHOR=0, DLY=0, REV=10, RSZ=30, DRV=40)),
+ ("Siren", 136, dict(MODE=4, DET=10, MIX=30, COL=50, OCT=3, CUT=96, RES=30, FENV=0, AA=10, AD=60, AS=110, AR=50, VMODE=2, GLIDE=60, LRATE=30, LAMT=100, LDST=0, LSHP=1, CHOR=30, DLY=70, DTIM=2, DFB=70, REV=60, RSZ=90)),
+ ("Machine Arp", 138, dict(MODE=8, DET=10, MIX=20, COL=20, CUT=84, RES=44, FTYPE=1, FENV=60, AA=0, AD=34, AS=0, AR=24, FA=0, FD=30, FS=0, AON=1, APAT=5, ARATE=2, ARNG=2, AGATE=40, CHOR=20, DLY=56, DTIM=4, DFB=60, REV=40, RSZ=70)),
+ # ================= GARAGE (65..80): reese and organ basses, bell and organ stabs, shuffled
+ ("Reese Bass", 132, dict(MODE=10, DET=60, MIX=60, SUB=30, OCT=1, CUT=50, RES=30, FTYPE=1, FENV=30, AA=2, AD=60, AS=110, AR=30, VMODE=2, GLIDE=24, LRATE=8, LAMT=40, LDST=1, CHOR=0, DLY=0, REV=12, RSZ=40, DRV=40, SSWG=70)),
+ ("Warp Reese", 134, dict(MODE=10, DET=96, MIX=40, SUB=40, OCT=1, CUT=40, RES=60, FTYPE=2, FENV=40, AA=0, AD=56, AS=100, AR=30, VMODE=2, GLIDE=40, LRATE=20, LAMT=90, LDST=1, LSHP=1, CHOR=30, DLY=10, REV=20, RSZ=50, DRV=56, SSWG=70)),
+ ("Organ Bass", 132, dict(MODE=6, DET=6, MIX=100, SUB=40, COL=10, OCT=1, CUT=90, RES=10, FENV=20, AA=0, AD=36, AS=50, AR=18, FA=0, FD=24, FS=0, VMODE=1, CHOR=10, DLY=0, REV=14, RSZ=40, DRV=30, SSWG=74)),
+ ("Sub Wobble", 134, dict(MODE=4, DET=6, MIX=20, SUB=110, COL=10, OCT=1, CUT=40, RES=40, FENV=10, AA=1, AD=60, AS=110, AR=30, VMODE=2, GLIDE=20, LRATE=44, LAMT=96, LDST=1, CHOR=0, DLY=0, REV=8, RSZ=30, DRV=30, SSWG=70)),
+ ("2-Step Organ", 132, dict(MODE=6, DET=30, MIX=70, COL=70, CUT=104, RES=10, FENV=10, AA=0, AD=40, AS=0, AR=30, FA=0, FD=30, FS=0, CHOR=70, DLY=40, DTIM=5, DFB=46, REV=40, RSZ=64, CON=1, CSCL=1, CVOI=4, SSWG=74)),
+ ("Bell Stab", 132, dict(MODE=5, DET=30, MIX=110, COL=60, CUT=116, RES=8, FENV=8, AA=0, AD=50, AS=0, AR=44, FA=0, FD=40, FS=0, CHOR=50, DLY=50, DTIM=5, DFB=50, REV=50, RSZ=72, CON=1, CSCL=1, CVOI=5, SSWG=74)),
+ ("Garage Piano", 130, dict(MODE=5, DET=14, MIX=30, COL=70, CUT=110, RES=10, FENV=14, AA=0, AD=64, AS=20, AR=50, FA=0, FD=50, FS=8, CHOR=40, DLY=24, DTIM=5, REV=44, RSZ=70, CON=1, CSCL=1, CVOI=4, SSWG=72)),
+ ("Skip Pluck", 134, dict(MODE=2, DET=20, MIX=50, COL=60, CUT=84, RES=30, FENV=60, AA=0, AD=36, AS=0, AR=30, FA=0, FD=34, FS=0, AON=1, APAT=4, ARATE=2, ARNG=2, AGATE=40, CHOR=50, DLY=60, DTIM=5, DFB=56, REV=50, RSZ=76, SSWG=76)),
+ ("Vox Chop", 132, dict(MODE=3, DET=20, MIX=50, COL=50, OCT=3, CUT=60, RES=84, FTYPE=4, FENV=70, AA=0, AD=40, AS=40, AR=26, FA=0, FD=46, FS=10, VMODE=1, GLIDE=10, CHOR=40, DLY=44, DTIM=5, DFB=50, REV=40, RSZ=66, DRV=100, SSWG=74)),
+ ("Vox Pad", 130, dict(MODE=0, DET=40, MIX=70, CUT=70, RES=70, FTYPE=4, FENV=20, AA=40, AD=80, AS=110, AR=80, LRATE=14, LAMT=70, LDST=1, CHOR=90, DLY=30, DTIM=5, REV=84, RSZ=100, CON=1, CSCL=1, CVOI=6)),
+ ("Speed Stab", 138, dict(MODE=0, DET=40, MIX=84, CUT=74, RES=30, FTYPE=1, FENV=56, AA=0, AD=38, AS=0, AR=30, FA=0, FD=34, FS=0, CHOR=50, DLY=44, DTIM=5, DFB=50, REV=44, RSZ=70, CON=1, CSCL=1, CVOI=7, DRV=24, SSWG=70)),
+ ("Bassline Donk", 138, dict(MODE=7, DET=8, MIX=90, SUB=20, COL=36, OCT=1, CUT=104, RES=10, FENV=20, AA=0, AD=36, AS=30, AR=20, FA=0, FD=30, FS=0, VMODE=1, CHOR=0, DLY=0, REV=12, RSZ=36, DRV=40, SSWG=60)),
+ ("Night Keys", 128, dict(MODE=5, DET=20, MIX=20, COL=36, CUT=100, RES=10, FENV=12, AA=0, AD=84, AS=50, AR=66, FA=0, FD=70, FS=16, CHOR=80, DLY=36, DTIM=5, DFB=44, REV=70, RSZ=90, TAPE=30, CON=1, CSCL=4, CVOI=5, SSWG=70)),
+ ("String Lift", 132, dict(MODE=0, DET=50, MIX=80, CUT=84, RES=16, FENV=20, AA=30, AD=80, AS=110, AR=70, CHOR=100, DLY=20, DTIM=5, REV=80, RSZ=96, CON=1, CSCL=1, CVOI=5)),
+ ("Flute Lead", 132, dict(MODE=6, DET=10, MIX=0, COL=0, OCT=3, CUT=100, RES=10, FENV=0, AA=8, AD=60, AS=110, AR=40, VMODE=2, GLIDE=20, LRATE=50, LAMT=24, LDST=0, CHOR=40, DLY=50, DTIM=5, DFB=50, REV=60, RSZ=84, DRV=30, SSWG=70)),
+ ("Dark Roller", 136, dict(MODE=10, DET=40, MIX=90, SUB=70, OCT=1, CUT=36, RES=44, FTYPE=1, FENV=40, AA=0, AD=50, AS=96, AR=24, VMODE=2, GLIDE=16, CHOR=0, DLY=0, REV=10, RSZ=36, DRV=60, SSWG=70)),
 ]
 
 # the sequences: sixteen steps, "-" a rest, a number the semitones from the root (negative below), a: accent, s: slide
@@ -118,6 +152,24 @@ SEQ = {
  "Donk Bass": "0a - 12 0 - 0 7 - 0a - 12 0 - 10 - 12", "Rubber Donk": "0 12 - 7 - 12 0 - 3 15 - 10 - 15 3 -",
  "Sub Roller": "0 - - 0s 3 - 0 - - - 0 - -2s 0 - -", "Night Bus": "12 - - - 10 - - 7 - - - 5 - 7 - -",
  "Vowel Talk": "0a 0 - 12 - 0 3s 5 - 0a - 10 0 - 7 -", "Swung Pluck": "12 - 15 12 - 19 - 15 12 - 14 10 - 17 - 14",
+ # techno
+ "Acid Line": "0a 0 12s 0 0 3a 0s 12 0 0a 10s 12 0 0 3 15a", "Acid Square": "0 0a 0 12s 10 0 0a 3 0 12a 0s 0 7 0 10s 12a",
+ "Hoover Acid": "0a - 0 12s 0 - 3a - 0 0s 12 - 0a 10 - 7s", "Warehouse Stab": "- - 0a - - - 0 - - - 0a - - 0 - -",
+ "Metal Stab": "0 - - 0 - - 0a - - 0 - - 3 - 0a -", "Bell Factory": "12 - - 19 - - 15 - - 12 - 22 - - 19 -",
+ "Rumble": "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", "Drone Hall": SEQ_PAD, "Hiss Sweep": SEQ_PAD,
+ "Noise Pulse": "- - 0 - - - 0 - - - 0 - - - 0 0", "Sync Lead": "12 - 12s 15 - 12 - 10s 12 - - 19a - 15 - 10",
+ "Dub Chord": "- - 0 - - - - - - - 0a - - - - -", "Dub Stab Dark": "- - - 0 - - - - - - - - 0a - - -",
+ "Pulse Bass": "0 - 0 0 - 0 - 0 0 - 0 0 - 0 3 -", "Siren": "12s 12s 12s 24 - - - - 12s 12s 12s 19 - - - -",
+ "Machine Arp": "0 12 0 15 0 12 0 19 0 12 0 15 0 22 0 19",
+ # garage
+ "Reese Bass": "0 - - 0s 3 - - 0 - - 10s 12 - - 0 -", "Warp Reese": "0s 0 - - 0a - 7s 0 - - 0s 3 - 0a - -",
+ "Organ Bass": "0a - - 0 - 12 - - 0 - 10a - 12 - 0 -", "Sub Wobble": "0 - - - 0s 0 - - 3 - - - 0s -2 - -",
+ "2-Step Organ": "- - 0 - - 0a - - - - 0 - 3 - - -", "Bell Stab": "0 - - 0 - - - 3a - - 0 - - - 5 -",
+ "Garage Piano": "0 - - 0a - - 0 - - 3 - - 0a - 5 -", "Skip Pluck": "12 - 15 - - 12 19 - 12 - - 15 - 22 19 -",
+ "Vox Chop": "12a - - 12 - 15s 12 - - 10a - 12 - - 7 -", "Vox Pad": SEQ_PAD,
+ "Speed Stab": "0 - - 0 - - 0a - - 0 - - 0 - 3a -", "Bassline Donk": "0a - 12 0 - - 0 7 - 0a 12 - 0 - 10 12",
+ "Night Keys": "0 - - - - - 0 - - 5 - - - - 3 -", "String Lift": SEQ_PAD,
+ "Flute Lead": "12 - - 15 - 12 - - 10 - 12 - - 7 - -", "Dark Roller": "0 - 0s 0 - - 3 0 - 0s 0 - -2a - 0 -",
 }
 
 
@@ -140,7 +192,7 @@ def seq_bytes(txt):
         f.append(fl)
     return n + f
 
-assert len(P) == 48, len(P)
+assert len(P) == 80, len(P)
 out = ["/* SPDX-License-Identifier: GPL-3.0-only */", "/* generated by tools/gen_presets.py: do not edit */",
        "static const struct { const char *name; uint8_t bpm; uint8_t p[P_N]; uint8_t sq[32]; } GS_PRE[GS_NPRE] = {"]
 for name, bpm, d in P:
