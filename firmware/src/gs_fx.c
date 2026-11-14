@@ -2,22 +2,57 @@
  * Copyright (C) 2026 GartStringer contributors */
 /* GartStringer's effects, in the order the sound meets them: the drive and the crusher, the ensemble (a three-tap
  * chorus that gives the mono voices their width), the glitch (a stutter that loops the last sixteenth, in reverse, a tape
- * stop, a drop-out), the tempo-synced ping-pong echo, a reverb (an eight-line feedback network with a Hadamard mix), and
+ * stop, a drop-out), the tempo-synced ping-pong echo, a reverb (four diffusers into an eight-line feedback network with a Hadamard mix), and
  * the master (a DC cut, a soft limiter, the MASTER pot). Integer only; every buffer is int16 in the pool.
  * Included by gartstringer.c after gs_synth.c. */
 
-#define SK_RVN 8                         /* reverb lines */
-static const uint16_t SK_RVL[SK_RVN] = {1049, 1223, 1399, 1621, 1823, 2063, 2273, 2551};
-#define SK_RVMAX 2560
-#define SK_AP1 142
-#define SK_AP2 107
+#define SK_RVN 8                         /* reverb lines: 32 to 98 ms, no two sharing a factor */
+static const uint16_t SK_RVL[SK_RVN] = {1423, 1811, 2243, 2617, 3049, 3463, 3907, 4337};
+#define SK_RVMAX 4352
+#define SK_NAP 4                         /* the input's diffusers */
+static const uint16_t SK_APL[SK_NAP] = {142, 107, 379, 277};
+#define SK_APMAX 384
+static const int16_t SK_RVG2[32][SK_RVN] = {                         /* each line's gain, by its length, for a decay of 0.6 s (first row) to 20 s (last) before the damping takes its share */
+    {22599, 20422, 18244, 16547, 14782, 13268, 11816, 10561},
+    {23513, 21479, 19420, 17798, 16092, 14611, 13174, 11917},
+    {24360, 22468, 20535, 18995, 17360, 15926, 14519, 13274},
+    {25143, 23391, 21584, 20133, 18577, 17200, 15835, 14617},
+    {25863, 24247, 22567, 21206, 19736, 18424, 17113, 15932},
+    {26524, 25039, 23483, 22214, 20833, 19591, 18340, 17206},
+    {27129, 25768, 24332, 23154, 21864, 20695, 19511, 18429},
+    {27681, 26437, 25117, 24028, 22828, 21735, 20621, 19596},
+    {28183, 27049, 25839, 24836, 23725, 22708, 21665, 20701},
+    {28640, 27608, 26502, 25581, 24557, 23614, 22642, 21740},
+    {29054, 28117, 27109, 26266, 25324, 24453, 23553, 22712},
+    {29429, 28580, 27663, 26893, 26030, 25229, 24397, 23618},
+    {29769, 29000, 28167, 27465, 26677, 25942, 25177, 24457},
+    {30075, 29380, 28625, 27987, 27268, 26596, 25894, 25232},
+    {30351, 29724, 29041, 28462, 27808, 27195, 26553, 25945},
+    {30600, 30034, 29417, 28893, 28299, 27741, 27155, 26599},
+    {30824, 30315, 29757, 29283, 28745, 28238, 27705, 27198},
+    {31026, 30567, 30065, 29636, 29149, 28690, 28205, 27744},
+    {31207, 30795, 30342, 29956, 29515, 29099, 28660, 28240},
+    {31370, 30999, 30592, 30244, 29846, 29470, 29072, 28692},
+    {31516, 31183, 30817, 30503, 30145, 29805, 29445, 29101},
+    {31647, 31348, 31019, 30737, 30414, 30108, 29783, 29472},
+    {31765, 31497, 31201, 30947, 30657, 30381, 30088, 29807},
+    {31870, 31630, 31364, 31137, 30875, 30627, 30363, 30109},
+    {31965, 31749, 31511, 31307, 31072, 30848, 30611, 30382},
+    {32049, 31856, 31643, 31459, 31248, 31048, 30834, 30628},
+    {32125, 31952, 31761, 31596, 31407, 31227, 31034, 30849},
+    {32193, 32038, 31867, 31719, 31549, 31387, 31215, 31048},
+    {32254, 32115, 31962, 31829, 31677, 31532, 31377, 31227},
+    {32308, 32184, 32046, 31928, 31791, 31661, 31522, 31388},
+    {32357, 32246, 32123, 32016, 31894, 31777, 31653, 31532},
+    {32400, 32301, 32191, 32096, 31986, 31882, 31770, 31662},
+};
 #define SK_DLN 16384                     /* the echo's line, samples (a power of two): 0.37 s */
 #define GS_GLN 16384                     /* the glitch buffer: 0.37 s */
 #define GS_CHN 1024                      /* the ensemble's line */
 
 static struct {
     int16_t line[SK_RVN][SK_RVMAX];
-    int16_t ap1[SK_AP1], ap2[SK_AP2];
+    int16_t ap[SK_NAP][SK_APMAX];
     int16_t dl[2][SK_DLN];
     int16_t gl[2][GS_GLN];
     int16_t ch[GS_CHN];
@@ -26,7 +61,8 @@ static struct {
 static struct {
     uint32_t rp[SK_RVN];                 /* the reverb lines' write positions */
     int32_t lpz[SK_RVN];                 /* the damping filters */
-    uint32_t ap1p, ap2p, mod;
+    int32_t hpz[SK_RVN];                 /* .. and the very low part of each line, taken back out (the lows do not ring on) */
+    uint32_t app[SK_NAP], mod;
     int32_t g[SK_RVN];                   /* the lines' gains */
     int32_t damp;                        /* the damping coefficient, Q15 */
     int32_t wet, in;                     /* the return and the send, Q15 */
@@ -42,39 +78,44 @@ static struct {
 
 static inline int32_t sk_q15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b + 16384) >> 15); }
 
+/* The reverb: four allpasses smear the input so a struck note arrives as a wash and not as separate echoes; eight lines feed each
+ * other through a Hadamard mix; each line is damped at the top, has most of what is under about 100 Hz taken out of its return (so
+ * no low note rings on after the rest has gone, and nothing steady can build up), and four of the eight are read at a place that
+ * sways a few samples, which keeps any one pitch from standing out in the tail. */
 static void sk_reverb(const int32_t *in, int32_t *ol, int32_t *or_, uint32_t n)
 {
     uint32_t i, k;
     for (i = 0; i < n; i++) {
         int32_t x = sk_q15(in[i], sk_f.in), t, d[SK_RVN], y;
-        int32_t lfo = SK_SIN[(sk_f.mod >> 10) & 1023u];
-        sk_f.mod += 11u;                                               /* ~0.4 Hz */
-        /* two allpasses spread the input */
-        t = sk_fxm.ap1[sk_f.ap1p];
-        y = x - ((t * 19660) >> 15);
-        sk_fxm.ap1[sk_f.ap1p] = (int16_t)sk_clampi(y, -32767, 32767);
-        x = t + ((y * 19660) >> 15);
-        if (++sk_f.ap1p >= SK_AP1)
-            sk_f.ap1p = 0;
-        t = sk_fxm.ap2[sk_f.ap2p];
-        y = x - ((t * 19660) >> 15);
-        sk_fxm.ap2[sk_f.ap2p] = (int16_t)sk_clampi(y, -32767, 32767);
-        x = t + ((y * 19660) >> 15);
-        if (++sk_f.ap2p >= SK_AP2)
-            sk_f.ap2p = 0;
+        int32_t lfo[2];
+        sk_f.mod += 1u;
+        lfo[0] = SK_SIN[((sk_f.mod * 23u) >> 11) & 1023u];              /* 0.48 Hz */
+        lfo[1] = SK_SIN[((sk_f.mod * 37u) >> 11) & 1023u];              /* 0.78 Hz */
+        for (k = 0; k < SK_NAP; k++) {                                   /* the diffusers */
+            t = sk_fxm.ap[k][sk_f.app[k]];
+            y = x - ((t * 19660) >> 15);
+            sk_fxm.ap[k][sk_f.app[k]] = (int16_t)sk_clampi(y, -32767, 32767);
+            x = t + ((y * 19660) >> 15);
+            if (++sk_f.app[k] >= SK_APL[k])
+                sk_f.app[k] = 0;
+        }
         for (k = 0; k < SK_RVN; k++) {
-            uint32_t rd = sk_f.rp[k] + 1u;                              /* the oldest sample: a line's length ago */
+            uint32_t len = SK_RVL[k], rd = sk_f.rp[k] + 1u;              /* the oldest sample: a line's length ago */
             int32_t v;
-            if (k == 1u || k == 4u) {                                   /* these two read at a slowly moving place */
-                int32_t m = (lfo * 14) >> 10;                           /* +-14 sixteenth samples... */
-                uint32_t a = sk_f.rp[k] + 1u + (uint32_t)((m >> 4) + 16), fr = (uint32_t)m & 15u;
-                int32_t s0 = sk_fxm.line[k][a % SK_RVL[k]], s1 = sk_fxm.line[k][(a + 1u) % SK_RVL[k]];
+            if (k & 1u) {                                               /* the odd lines read at a slowly moving place: +-3 samples, each at its own phase */
+                int32_t m = ((k & 2u) ? -lfo[(k >> 2) & 1u] : lfo[(k >> 2) & 1u]) * 48 >> 15;   /* in sixteenths of a sample */
+                uint32_t a = rd + (uint32_t)((m >> 4) + 4), fr = (uint32_t)m & 15u;
+                int32_t s0, s1;
+                a = a >= len ? a - len : a;
+                a = a >= len ? a - len : a;
+                s0 = sk_fxm.line[k][a];
+                s1 = sk_fxm.line[k][a + 1u >= len ? 0u : a + 1u];
                 v = s0 + (((s1 - s0) * (int32_t)fr) >> 4);
-            } else {
-                v = sk_fxm.line[k][rd % SK_RVL[k]];
-            }
-            sk_f.lpz[k] += sk_q15(v - sk_f.lpz[k], 32767 - sk_f.damp);  /* the damping */
-            d[k] = sk_q15(sk_f.lpz[k], sk_f.g[k]);
+            } else
+                v = sk_fxm.line[k][rd >= len ? rd - len : rd];
+            sk_f.lpz[k] += sk_q15(v - sk_f.lpz[k], 32767 - sk_f.damp);               /* the damping */
+            sk_f.hpz[k] += ((sk_f.lpz[k] * 64 - sk_f.hpz[k]) * 140) >> 15;           /* about 30 Hz (x64: the slow filter keeps its low bits) */
+            d[k] = sk_q15(sk_f.lpz[k] - ((sk_f.hpz[k] * 5 + 256) >> 9), sk_f.g[k]);  /* less 5/8 of the lows; then the decay */
         }
         /* a Hadamard mix of the eight */
         {
@@ -94,8 +135,10 @@ static void sk_reverb(const int32_t *in, int32_t *ol, int32_t *or_, uint32_t n)
         {
             int32_t outl = 0, outr = 0;
             for (k = 0; k < SK_RVN; k++) {
-                int32_t w = ((d[k] * 11585) >> 15) + ((k & 1u) ? x : -x) / 2;     /* 1 / sqrt(8), plus the input */
+                int32_t w = sk_q15(d[k], 11585) + ((k & 1u) ? x : -x) / 2;        /* 1 / sqrt(8), plus the input */
                 uint32_t wp = sk_f.rp[k];
+                if (w > -3 && w < 3)                                    /* (the last bit or two is let go, so the tail ends and does not idle) */
+                    w = 0;
                 sk_fxm.line[k][wp] = (int16_t)sk_clampi(w, -32767, 32767);
                 if (++wp >= SK_RVL[k])
                     wp = 0;
@@ -310,14 +353,13 @@ static inline int32_t gs_sat(int32_t x, int32_t g)
 static void gs_space(void)
 {
     uint32_t i, rt = (uint32_t)gs.p[P_RSZ] * 31u / 127u;
-    int32_t g0 = SK_RVG[rt < 31u ? rt : 31u];
     static const uint16_t DT[6] = {256, 512, 768, 1024, 341, 768};  /* the echo's time, of a sixteenth x 1/256 */
     uint32_t t;
     for (i = 0; i < SK_RVN; i++)
-        sk_f.g[i] = 32767 - ((32767 - g0) * (int32_t)SK_RVL[i]) / 2400;
-    sk_f.damp = 22000 - (int32_t)gs.p[P_RSZ] * 40;
+        sk_f.g[i] = SK_RVG2[rt < 31u ? rt : 31u][i];
+    sk_f.damp = 12000 - (int32_t)gs.p[P_RSZ] * 30;                 /* the top is damped from about 7 kHz (a small room) to 11 kHz */
     sk_f.wet = 1200 + (int32_t)gs.p[P_REV] * 190;
-    sk_f.in = 7000;
+    sk_f.in = 8500;
     sk_f.dfb = 3000 + (int32_t)gs.p[P_DFB] * 150;                  /* 0.09 .. 0.65 */
     sk_f.dwet = (int32_t)gs.p[P_DLY] * 210;
     t = (uint32_t)(((uint64_t)gs_s16s() * DT[gs.p[P_DTIM] % 6u]) >> 8);
