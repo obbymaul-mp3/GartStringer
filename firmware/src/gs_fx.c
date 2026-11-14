@@ -69,6 +69,7 @@ static struct {
     uint32_t dwp;                        /* the echo */
     int32_t dcur, dtgt;                  /* its length now and wanted, Q8 samples */
     int32_t dfb, dwet, dlz[2];
+    int32_t dj[8];                       /* the DJ filter: two low-pass poles a side, two high-pass */
     int32_t dc[2], mlow[2], mlow2[2];    /* the master's DC cut and its two-pole top (about 9 kHz: the digital edge off a bright saw) */
     uint32_t master;                     /* MASTER, Q12 (the pot) */
     uint32_t chp, chph[3];               /* the ensemble */
@@ -362,6 +363,16 @@ static void gs_space(void)
     sk_f.in = 8500;
     sk_f.dfb = 3000 + (int32_t)gs.p[P_DFB] * 150;                  /* 0.09 .. 0.65 */
     sk_f.dwet = (int32_t)gs.p[P_DLY] * 210;
+    if (gs.mkind == 0u) {                                          /* the macro: BUILD feeds the spaces a little, WASH a lot */
+        sk_f.wet += (int32_t)gs.mac * 100;
+        sk_f.dfb += (int32_t)gs.mac * 60;
+    } else if (gs.mkind == 1u) {
+        sk_f.wet += (int32_t)gs.mac * 200;
+        sk_f.dwet += (int32_t)gs.mac * 120;
+        sk_f.dfb += (int32_t)gs.mac * 80;
+    }
+    if (sk_f.dfb > 27000)
+        sk_f.dfb = 27000;
     t = (uint32_t)(((uint64_t)gs_s16s() * DT[gs.p[P_DTIM] % 6u]) >> 8);
     while (t >= SK_DLN - 64u)
         t >>= 1;
@@ -404,6 +415,30 @@ static void sk_render(int32_t *out, uint32_t n)
     int32_t gprev, gnew, dg, drive = 256 + (int32_t)gs.p[P_DRV] * 12;
     uint32_t i, crush = gs.p[P_CRU];
     int32_t top = 23000 - (int32_t)gs.p[P_TAPE] * 125;             /* the master's top: about 9 kHz, down to about 2 kHz as the tape wears */
+    /* The performance controls sit on top of the patch and change nothing in it: back at rest, the sound is as it was.
+     * MACRO, by its kind: BUILD opens every voice's filter, feeds the reverb and the echo and thins the lows (a rise; let go, the drop);
+     * WASH turns the sound into its own reverb and echo; DARK closes the top down to a murmur; CRUSH drives and crushes.
+     * DJ FILTER: from the middle, left closes a low-pass, right raises a high-pass. Both filters are two poles on the whole output. */
+    int32_t mac = gs.mac, mk = gs.mkind, dry = 4096, djlp = 32767, djhp = 0, cg = 4096;
+    if (mk == 1)
+        dry = 4096 - mac * 24;
+    else if (mk == 2)
+        top -= (top - 500) * mac / 127;
+    else if (mk == 3) {
+        drive += mac * 10;
+        cg = 4096 - mac * 20;
+        crush += (uint32_t)mac * 3u / 4u;
+    } else
+        djhp = (mac * mac) >> 2;                                   /* BUILD: up to about 900 Hz */
+    if (gs.djf < 64u) {
+        djlp = 300 + (int32_t)gs.djf * (int32_t)gs.djf * 8;
+        if (djlp > 32767)
+            djlp = 32767;
+    } else if (gs.djf > 64u) {
+        int32_t h = (int32_t)gs.djf - 64, c = h * h * 3;
+        if (c > djhp)
+            djhp = c;
+    }
     static int32_t chold, ccnt;
     if (!sk_f.ready) {
         sk_f.ready = 1;
@@ -437,8 +472,10 @@ static void sk_render(int32_t *out, uint32_t n)
                     ccnt = (int32_t)hold;
                 }
                 ccnt--;
-                x = (chold >> sh) << sh;
+                x = chold & (int32_t)~((1u << sh) - 1u);
             }
+            if (cg != 4096)                                         /* (CRUSH drives harder: the level is taken back to match) */
+                x = (x * cg) >> 12;
             m[i] = x;
             {
                 uint32_t a = (uint32_t)(x < 0 ? -x : x);
@@ -461,7 +498,7 @@ static void sk_render(int32_t *out, uint32_t n)
     sk_reverb(rv, wl, wr, n);
     sk_delay(sd, wl, wr, n);
     for (i = 0; i < n; i++) {
-        int32_t a = l[i] + wl[i], b = r[i] + wr[i];
+        int32_t a = ((l[i] * dry) >> 12) + wl[i], b = ((r[i] * dry) >> 12) + wr[i];
         sk_f.dc[0] += (a * 256 - sk_f.dc[0]) >> 10;
         sk_f.dc[1] += (b * 256 - sk_f.dc[1]) >> 10;
         a -= sk_f.dc[0] >> 8;
@@ -472,6 +509,27 @@ static void sk_render(int32_t *out, uint32_t n)
         sk_f.mlow2[1] += sk_q15(sk_f.mlow[1] - sk_f.mlow2[1], top);
         a = sk_f.mlow2[0];
         b = sk_f.mlow2[1];
+        if (djlp < 32767) {                                         /* the DJ filter's low-pass */
+            sk_f.dj[0] += sk_q15(a - sk_f.dj[0], djlp);
+            sk_f.dj[1] += sk_q15(b - sk_f.dj[1], djlp);
+            sk_f.dj[2] += sk_q15(sk_f.dj[0] - sk_f.dj[2], djlp);
+            sk_f.dj[3] += sk_q15(sk_f.dj[1] - sk_f.dj[3], djlp);
+            a = sk_f.dj[2];
+            b = sk_f.dj[3];
+        } else {
+            sk_f.dj[0] = sk_f.dj[2] = a;
+            sk_f.dj[1] = sk_f.dj[3] = b;
+        }
+        if (djhp > 0) {                                             /* .. its high-pass (and the BUILD's) */
+            sk_f.dj[4] += sk_q15(a - sk_f.dj[4], djhp);
+            sk_f.dj[5] += sk_q15(b - sk_f.dj[5], djhp);
+            a -= sk_f.dj[4];
+            b -= sk_f.dj[5];
+            sk_f.dj[6] += sk_q15(a - sk_f.dj[6], djhp);
+            sk_f.dj[7] += sk_q15(b - sk_f.dj[7], djhp);
+            a -= sk_f.dj[6];
+            b -= sk_f.dj[7];
+        }
         if (gs_intro_n) {
             int32_t k = gs_intro_sample();
             a += k;

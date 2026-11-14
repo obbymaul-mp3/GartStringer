@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# GartStringer: the 80 factory patches (32 trance, then 16 each of house, techno and garage) (firmware/src/gs_presets.h), written as differences from a plain supersaw.
+# GartStringer: the 112 factory patches (the first 80: 32 trance, then 16 each of house, techno and garage; then eight more a world) (firmware/src/gs_presets.h), written as differences from a plain supersaw.
 #   python3 tools/gen_presets.py > firmware/src/gs_presets.h
 import sys
 
@@ -112,6 +112,48 @@ P = [
  ("Dark Roller", 136, dict(MODE=10, DET=40, MIX=90, SUB=70, OCT=1, CUT=36, RES=44, FTYPE=1, FENV=40, AA=0, AD=50, AS=96, AR=24, VMODE=2, GLIDE=16, CHOR=0, DLY=0, REV=10, RSZ=36, DRV=60, SSWG=70)),
 ]
 
+# 1.2: eight more a world, added after the first eighty so that a saved slot's patch number still means the same patch.
+# (world, name, tempo, what differs)
+NEW = [
+ # ---- trance: the pumped wall, melodic plucks, the hard end
+ (0, "Pump Supersaw", 140, dict(MODE=0, DET=80, MIX=104, CUT=102, RES=18, FENV=24, AA=2, AD=70, AS=112, AR=58, GPAT=14, GRATE=1, GDEP=112, GSMO=84, CHOR=96, DLY=34, DTIM=2, DFB=48, REV=74, RSZ=90, CON=1, CSCL=1, CVOI=1)),
+ (0, "Melodic Pluck", 126, dict(MODE=2, DET=28, MIX=50, COL=62, CUT=70, RES=36, FTYPE=1, FENV=78, AA=0, AD=48, AS=6, AR=50, FA=0, FD=46, FS=4, FR=50, CHOR=60, DLY=84, DTIM=2, DFB=70, REV=92, RSZ=104, LRATE=18, LAMT=30, LDST=1)),
+ (0, "Psy Bass", 145, dict(MODE=3, DET=6, MIX=30, SUB=40, COL=30, OCT=1, CUT=52, RES=44, FTYPE=1, FENV=74, KEY=10, AA=0, AD=30, AS=0, AR=14, FA=0, FD=28, FS=0, FR=14, VMODE=1, CHOR=0, DLY=0, REV=6, RSZ=24, DRV=36, SGATE=50)),
+ (0, "Hard Lead", 150, dict(MODE=1, DET=70, MIX=80, COL=104, CUT=100, RES=56, FENV=40, AA=0, AD=60, AS=104, AR=40, GLIDE=22, VMODE=2, LRATE=66, LAMT=30, LDST=3, CHOR=50, DLY=44, DTIM=2, DFB=52, REV=52, RSZ=76, DRV=84)),
+ (0, "Rave Piano", 138, dict(MODE=5, DET=16, MIX=44, COL=96, CUT=120, RES=8, FENV=8, KEY=50, AA=0, AD=62, AS=24, AR=46, FA=0, FD=50, FS=10, CHOR=44, DLY=30, DTIM=2, DFB=44, REV=56, RSZ=80, DRV=20, CON=1, CSCL=1, CVOI=0)),
+ (0, "Hard Acid", 145, dict(MODE=3, DET=0, MIX=10, SUB=0, COL=20, OCT=1, CUT=48, RES=112, FTYPE=5, FENV=104, KEY=30, AA=0, AD=40, AS=30, AR=18, FA=0, FD=36, FS=0, FR=18, VMODE=2, GLIDE=20, CHOR=0, DLY=40, DTIM=2, DFB=56, REV=26, RSZ=56, DRV=86)),
+ (0, "Dream Bells", 132, dict(MODE=5, DET=34, MIX=112, COL=50, CUT=118, RES=8, FENV=6, AA=0, AD=80, AS=16, AR=76, FA=0, FD=60, FS=6, CHOR=76, DLY=78, DTIM=2, DFB=66, REV=100, RSZ=110, AON=1, APAT=2, ARATE=2, ARNG=2, AGATE=80)),
+ (0, "Neo Lead", 140, dict(MODE=0, DET=50, MIX=84, SUB=20, CUT=92, RES=36, FTYPE=1, FENV=50, AA=1, AD=64, AS=100, AR=48, GLIDE=30, VMODE=2, GPAT=15, GRATE=1, GDEP=60, GSMO=70, LRATE=56, LAMT=16, CHOR=70, DLY=56, DTIM=2, DFB=58, REV=66, RSZ=86, DRV=30)),
+ # ---- house: tech and bass house, piano, afro, disco
+ (1, "Tech Bass", 126, dict(MODE=4, DET=4, MIX=36, SUB=70, COL=30, OCT=1, CUT=58, RES=30, FTYPE=1, FENV=60, AA=0, AD=36, AS=0, AR=20, FA=0, FD=30, FS=0, FR=20, VMODE=1, GLIDE=8, CHOR=0, DLY=0, REV=8, RSZ=30, DRV=34, SSWG=30)),
+ (1, "Piano House", 124, dict(MODE=5, DET=14, MIX=36, COL=84, CUT=118, RES=8, FENV=8, KEY=50, AA=0, AD=76, AS=30, AR=54, FA=0, FD=60, FS=12, CHOR=36, DLY=22, DTIM=2, DFB=40, REV=52, RSZ=78, TAPE=12, CON=1, CSCL=1, CVOI=4)),
+ (1, "Afro Pluck", 122, dict(MODE=5, DET=10, MIX=70, COL=24, CUT=100, RES=14, FENV=30, AA=0, AD=40, AS=0, AR=36, FA=0, FD=36, FS=0, CHOR=40, DLY=72, DTIM=5, DFB=62, REV=70, RSZ=92, SSWG=20)),
+ (1, "Growl Bass", 128, dict(MODE=10, DET=70, MIX=80, SUB=40, OCT=1, CUT=44, RES=76, FTYPE=4, FENV=70, AA=0, AD=46, AS=70, AR=22, FA=0, FD=44, FS=10, VMODE=2, GLIDE=14, LRATE=74, LAMT=60, LDST=1, LSHP=1, CHOR=10, DLY=0, REV=12, RSZ=36, DRV=96)),
+ (1, "Disco Strings", 124, dict(MODE=0, DET=46, MIX=76, CUT=96, RES=14, FENV=20, AA=24, AD=76, AS=112, AR=62, FA=20, FD=70, FS=80, CHOR=112, DLY=18, DTIM=2, REV=70, RSZ=90, TAPE=16, CON=1, CSCL=1, CVOI=1)),
+ (1, "Melodic Arp", 123, dict(MODE=2, DET=30, MIX=56, COL=58, CUT=76, RES=34, FTYPE=1, FENV=70, AA=0, AD=46, AS=10, AR=44, FA=0, FD=44, FS=6, AON=1, APAT=4, ARATE=2, ARNG=2, AGATE=60, GPAT=14, GRATE=1, GDEP=50, GSMO=80, CHOR=70, DLY=74, DTIM=2, DFB=64, REV=80, RSZ=100)),
+ (1, "Soul Chords", 120, dict(MODE=5, DET=18, MIX=20, COL=30, CUT=92, RES=12, FENV=14, AA=0, AD=92, AS=60, AR=72, FA=0, FD=80, FS=24, CHOR=96, DLY=20, DTIM=3, DFB=40, REV=64, RSZ=90, TAPE=50, LRATE=60, LAMT=14, LDST=2, CON=1, CSCL=4, CVOI=5)),
+ (1, "Classic Stab", 126, dict(MODE=6, DET=30, MIX=80, COL=80, CUT=106, RES=10, FENV=20, AA=0, AD=44, AS=0, AR=34, FA=0, FD=36, FS=0, CHOR=64, DLY=46, DTIM=2, DFB=52, REV=50, RSZ=76, DRV=20, CON=1, CSCL=1, CVOI=4)),
+ # ---- techno: hard and hypnotic
+ (2, "Screech", 150, dict(MODE=1, DET=60, MIX=60, COL=118, OCT=2, CUT=84, RES=80, FTYPE=2, FENV=50, AA=0, AD=56, AS=96, AR=30, VMODE=2, GLIDE=16, LRATE=80, LAMT=40, LDST=3, LSHP=1, CHOR=20, DLY=30, DTIM=2, DFB=46, REV=50, RSZ=84, DRV=112, CRU=16)),
+ (2, "Hypno Stab", 134, dict(MODE=8, DET=14, MIX=30, COL=50, CUT=76, RES=40, FTYPE=1, FENV=56, AA=0, AD=36, AS=0, AR=34, FA=0, FD=32, FS=0, CHOR=20, DLY=96, DTIM=5, DFB=92, REV=60, RSZ=96)),
+ (2, "Peak Lead", 136, dict(MODE=0, DET=36, MIX=70, SUB=20, CUT=70, RES=50, FTYPE=1, FENV=64, AA=0, AD=56, AS=70, AR=44, FA=0, FD=52, FS=20, GLIDE=24, VMODE=2, LRATE=30, LAMT=40, LDST=1, CHOR=40, DLY=70, DTIM=2, DFB=66, REV=84, RSZ=106, DRV=30)),
+ (2, "Off Bass", 140, dict(MODE=4, DET=4, MIX=24, SUB=104, COL=14, OCT=1, CUT=44, RES=20, FENV=20, AA=1, AD=60, AS=110, AR=20, VMODE=1, GPAT=0, GRATE=1, GDEP=127, GSMO=30, CHOR=0, DLY=0, REV=30, RSZ=80, DRV=40)),
+ (2, "Acid 16ths", 140, dict(MODE=0, DET=0, MIX=0, SUB=0, OCT=1, CUT=50, RES=106, FTYPE=5, FENV=76, KEY=30, AA=0, AD=30, AS=0, AR=14, FA=0, FD=30, FS=0, FR=14, VMODE=1, CHOR=0, DLY=50, DTIM=5, DFB=60, REV=30, RSZ=60, DRV=60, SGATE=50)),
+ (2, "Detroit Chord", 128, dict(MODE=2, DET=40, MIX=70, COL=50, CUT=74, RES=24, FTYPE=1, FENV=44, AA=4, AD=70, AS=70, AR=60, FA=10, FD=70, FS=30, LRATE=12, LAMT=50, LDST=1, CHOR=90, DLY=60, DTIM=5, DFB=60, REV=76, RSZ=100, CON=1, CSCL=1, CVOI=7)),
+ (2, "Minimal Blip", 132, dict(MODE=5, DET=6, MIX=96, COL=70, CUT=110, RES=20, FENV=10, AA=0, AD=26, AS=0, AR=20, FA=0, FD=24, FS=0, LRATE=90, LAMT=80, LDST=3, LSHP=3, AON=1, APAT=3, ARATE=2, ARNG=2, AGATE=30, CHOR=10, DLY=60, DTIM=5, DFB=56, REV=36, RSZ=64)),
+ (2, "Iron Drone", 145, dict(MODE=8, DET=60, MIX=70, COL=70, OCT=1, CUT=56, RES=24, FTYPE=2, FENV=10, AA=40, AD=90, AS=84, AR=90, LRATE=8, LAMT=100, LDST=1, LSHP=1, CHOR=20, DLY=40, DTIM=3, DFB=60, REV=84, RSZ=118, DRV=24, CRU=24)),
+ # ---- garage: the new school and the speed end
+ (3, "Wub Bass", 134, dict(MODE=5, DET=4, MIX=96, COL=20, OCT=1, CUT=70, RES=30, FTYPE=1, FENV=60, AA=0, AD=50, AS=60, AR=22, FA=0, FD=44, FS=10, VMODE=2, GLIDE=18, CHOR=0, DLY=0, REV=10, RSZ=36, DRV=50, SSWG=70)),
+ (3, "Sine Sub", 132, dict(MODE=4, DET=0, MIX=0, SUB=127, COL=0, OCT=1, CUT=36, RES=10, FENV=10, AA=1, AD=64, AS=112, AR=30, VMODE=2, GLIDE=30, CHOR=0, DLY=0, REV=4, RSZ=24, DRV=24, SSWG=70)),
+ (3, "Glass Pluck", 132, dict(MODE=8, DET=20, MIX=100, COL=90, CUT=112, RES=10, FENV=10, AA=0, AD=44, AS=0, AR=44, FA=0, FD=40, FS=0, CHOR=50, DLY=66, DTIM=5, DFB=58, REV=64, RSZ=88, SSWG=74)),
+ (3, "Dawn Pad", 130, dict(MODE=2, DET=44, MIX=64, COL=40, CUT=64, RES=20, FTYPE=1, FENV=30, AA=50, AD=86, AS=112, AR=96, LRATE=16, LAMT=44, LDST=3, CHOR=110, DLY=30, DTIM=5, DFB=44, REV=100, RSZ=108, TAPE=60, CON=1, CSCL=4, CVOI=5)),
+ (3, "Niche Lead", 138, dict(MODE=2, DET=6, MIX=0, COL=64, OCT=2, CUT=96, RES=30, FENV=30, AA=0, AD=50, AS=90, AR=26, VMODE=2, GLIDE=26, LRATE=58, LAMT=18, CHOR=30, DLY=44, DTIM=5, DFB=50, REV=36, RSZ=60, DRV=50, SSWG=60)),
+ (3, "Brass Stab", 132, dict(MODE=0, DET=30, MIX=70, CUT=60, RES=24, FTYPE=1, FENV=70, AA=2, AD=50, AS=30, AR=36, FA=14, FD=50, FS=30, CHOR=50, DLY=36, DTIM=5, DFB=46, REV=46, RSZ=70, DRV=24, CON=1, CSCL=1, CVOI=4, SSWG=72)),
+ (3, "Stretch Vox", 134, dict(MODE=3, DET=24, MIX=50, COL=56, OCT=3, CUT=56, RES=90, FTYPE=4, FENV=60, AA=0, AD=50, AS=80, AR=30, FA=0, FD=60, FS=20, VMODE=2, GLIDE=30, GLP=70, GLL=1, GLT=0, CHOR=50, DLY=40, DTIM=5, DFB=50, REV=50, RSZ=76, DRV=90, SSWG=74)),
+ (3, "Soul Organ", 130, dict(MODE=6, DET=30, MIX=40, COL=50, CUT=100, RES=10, FENV=10, AA=2, AD=70, AS=104, AR=40, FA=0, FD=40, FS=0, LRATE=64, LAMT=12, LDST=2, CHOR=104, DLY=20, DTIM=5, REV=50, RSZ=76, TAPE=20, CON=1, CSCL=4, CVOI=5, SSWG=72)),
+]
+WORLD0 = [0, 32, 48, 64, 80]                      # the first eighty: where each world starts
+
 # the sequences: sixteen steps, "-" a rest, a number the semitones from the root (negative below), a: accent, s: slide
 SEQ_DEFAULT = "0 - - - 0 - - - 0 - - - 0 - - -"
 SEQ_PAD = "0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0s 0"
@@ -170,6 +212,23 @@ SEQ = {
  "Speed Stab": "0 - - 0 - - 0a - - 0 - - 0 - 3a -", "Bassline Donk": "0a - 12 0 - - 0 7 - 0a 12 - 0 - 10 12",
  "Night Keys": "0 - - - - - 0 - - 5 - - - - 3 -", "String Lift": SEQ_PAD,
  "Flute Lead": "12 - - 15 - 12 - - 10 - 12 - - 7 - -", "Dark Roller": "0 - 0s 0 - - 3 0 - 0s 0 - -2a - 0 -",
+ # 1.2
+ "Pump Supersaw": SEQ_PAD, "Melodic Pluck": "12 - 15 - 19 - - 12 - 15 - 22 - 19 - 15",
+ "Psy Bass": "- 0 0 0 - 0 0 0 - 0 0 0 - 0 0 0", "Hard Lead": "12a - 12 15s 12 - 19a - 12 - 10s 12 - 15a - 7",
+ "Rave Piano": "0a - - 0 - - 0a - - 0 - 0a - - 5 -", "Hard Acid": "0a 0 12s 0 0a 3 0s 15a 0 0 12a 0s 10 0a 3 12s",
+ "Dream Bells": "12 - - 19 - - 15 - 22 - - 19 - 15 - -", "Neo Lead": "12 - - 15s 14 - 12 - 10s 12 - - 7 - 10s 12",
+ "Tech Bass": "0a - - 0 - 0 - 3s 0 - - 0a - 10 - 0", "Piano House": "0a - - 0 - - 0a - - - 5 - - 5a - -",
+ "Afro Pluck": "12 - 15 12 - 19 - 12 15 - 12 - 17 - 15 -", "Growl Bass": "0a - 0s 0 - - 12a - 0 - 0s 3 - 0a - -",
+ "Disco Strings": SEQ_PAD, "Melodic Arp": "12 - 19 - 15 - 12 - 22 - 19 - 15 - 19 -",
+ "Soul Chords": "0 - - - - - 0 - - - 3 - - - - -", "Classic Stab": "- - 0a - - 0 - - 0a - - - 5 - 0a -",
+ "Screech": "12a - - 12s 15 - - 12a - - 13s 12 - - 19a -", "Hypno Stab": "- - 0 - - - - 0a - - - - 0 - - -",
+ "Peak Lead": "12 - - - 15s 14 - - 12 - - 10s 12 - 7 -", "Off Bass": SEQ_PAD,
+ "Acid 16ths": "0a 0 0 12 0a 0 3 0 0a 0 12a 0 0 10 0a 15", "Detroit Chord": "- - 0 - - - - - 0a - - - - - 5 -",
+ "Minimal Blip": "12 - - 12 - 19 - - 12 - - - 15 - 12 -", "Iron Drone": SEQ_PAD,
+ "Wub Bass": "0a - - 0s 12 - - 0 - - 0a - 3s 0 - -", "Sine Sub": "0 - - - - - 0s 3 - - 0 - - -2s 0 -",
+ "Glass Pluck": "12 - - 15 - 12 - - 19 - 15 - - 12 - 10", "Dawn Pad": SEQ_PAD,
+ "Niche Lead": "12a - 12 - 15s 12 - 10a - 12 - - 7s 10 - 12", "Brass Stab": "0a - - 0 - - - 3a - - 0 - - 0a - -",
+ "Stretch Vox": "12a - - 12 - 15s 12 - - - 10a - 12s 7 - -", "Soul Organ": "0 - - - - 0 - - - - 3 - - - 5 -",
 }
 
 
@@ -193,7 +252,18 @@ def seq_bytes(txt):
     return n + f
 
 assert len(P) == 80, len(P)
+world = []
+for i in range(80):
+    world.append(max(w for w in range(4) if i >= WORLD0[w]))
+for w, name, bpm, d in NEW:
+    P.append((name, bpm, d))
+    world.append(w)
+order = [i for w in range(4) for i in range(len(P)) if world[i] == w]     # the list as the PRESETS knob walks it: a world at a time
+w0 = [sum(1 for x in world if x < w) for w in range(5)]
+assert len(set(n for n, _, _ in P)) == len(P)
 out = ["/* SPDX-License-Identifier: GPL-3.0-only */", "/* generated by tools/gen_presets.py: do not edit */",
+       "/* A patch's number is its place in GS_PRE and never changes (a saved slot holds it). The order they are shown in is GS_ORD: a world",
+       " * at a time; GS_POS is a patch's place in that order, GS_PWORLD its world, GS_W0 where each world starts in GS_ORD. */",
        "static const struct { const char *name; uint8_t bpm; uint8_t p[P_N]; uint8_t sq[32]; } GS_PRE[GS_NPRE] = {"]
 for name, bpm, d in P:
     assert len(name) <= 15, name
@@ -206,4 +276,10 @@ for name, bpm, d in P:
     out.append('    {"%s", %d, {%s}, {%s}},' % (name, bpm, ", ".join("[P_%s] = %d" % (k, v[k]) for k in ORDER),
                                                   ", ".join(str(x) for x in seq_bytes(SEQ.get(name, SEQ_DEFAULT)))))
 out.append("};")
+pos = [order.index(i) for i in range(len(P))]
+out.append("static const unsigned char GS_PWORLD[GS_NPRE] = {%s};" % ", ".join(map(str, world)))
+out.append("static const unsigned char GS_ORD[GS_NPRE] = {%s};" % ", ".join(map(str, order)))
+out.append("static const unsigned char GS_POS[GS_NPRE] = {%s};" % ", ".join(map(str, pos)))
+out.append("static const unsigned char GS_W0[GS_NWORLD + 1] = {%s};" % ", ".join(map(str, w0)))
+assert len(P) == 112
 print("\n".join(out))

@@ -185,6 +185,23 @@ int main(int argc, char **argv)
         } else if (!strncmp(s, "shot:", 5)) {
             run(33);
             write_ppm(s + 5);
+        } else if (!strncmp(s, "slot:", 5)) {                        /* slot:N:A  load (0), save (1) or clear (2) slot N (from 0) */
+            ui.slot = (uint8_t)atoi(s + 5);
+            ui.act = (uint8_t)atoi(strchr(s + 5, ':') + 1);
+            ui_do_save(now_ms);
+            run(33);
+        } else if (!strncmp(s, "dump:", 5)) {                        /* what a slot holds: the state, a byte a value */
+            FILE *f = fopen(s + 5, "wb");
+            uint8_t h[4] = {gs.preset, gs.bpm, (uint8_t)gs.oct, gs.pcur};
+            fwrite(h, 1, 4, f);
+            fwrite(gs.p, 1, P_N, f);
+            fwrite(gs.spl, 1, GS_NP, f);
+            fwrite(gs.sp, 1, GS_NP * GS_NS, f);
+            fwrite(gs.sx, 1, GS_NP * GS_NS, f);
+            fwrite(gs.psnd, 1, GS_NP, f);
+            fwrite(gs.ppre, 1, GS_NP, f);
+            fwrite(gs.pp, 1, GS_NP * P_N, f);
+            fclose(f);
         } else if (!strncmp(s, "wav:", 4))
             write_wav(s + 4);
     }

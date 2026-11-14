@@ -189,7 +189,7 @@ static void sk_led_key(uint32_t n, uint32_t level) { sk_led_set(14u + n, level);
 /* Six 4 KB sectors of the SPI flash hold the eighteen slots, three to a sector (a save rewrites only its own sector). The flash is off
  * the bus while it erases (about 50 ms, 400 at most) and the interrupts are off with it, so the output is made silent
  * first and the audio gets a few halves to run out on zeros. */
-static uint8_t sk_chk[sizeof sv];
+static uint8_t sk_chk[sizeof s4 > sizeof sv ? sizeof s4 : sizeof sv];
 #define SK_SEC(s) (SK_STORE_OFF - (s) * 4096u)               /* sector s of the slots: the first at the top, the rest stacked down under it */
 static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
 {

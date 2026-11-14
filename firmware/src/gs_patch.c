@@ -12,15 +12,20 @@ static void gs_load(uint32_t i)
     gs.preset = (uint8_t)(i % GS_NPRE);
     for (k = 0; k < P_N; k++)
         gs.p[k] = GS_PRE[gs.preset].p[k];
-    gs.bpm = GS_PRE[gs.preset].bpm;
-    {                                                              /* the patch's bar is pattern A; B, C and D start as copies of it (the clock goes on if it runs) */
+    /* The patch's own bar and tempo come with it only while the patterns are still a patch's: once the player has written, recorded
+     * or loaded a sequence (pdirty), a patch change is a change of sound and the notes and the tempo stay. */
+    if (!gs.pdirty) {
         uint32_t pt;
-        for (pt = 0; pt < GS_NP; pt++) {
+        if (!gs.srun)
+            gs.bpm = GS_PRE[gs.preset].bpm;
+        for (pt = 0; pt < GS_NP; pt++) {                           /* the bar is pattern A; the others start as copies of it */
             for (k = 0; k < GS_NS; k++) {
                 uint8_t n = GS_PRE[gs.preset].sq[k & 15u], f = GS_PRE[gs.preset].sq[16u + (k & 15u)];
                 gs.sp[pt][k] = k < 16u && (f & 1u) ? SP_MAKE((int)n, f & 2u, f & 4u) : 0u;
+                gs.sx[pt][k] = 0;
             }
             gs.spl[pt] = 16;
+            gs.psnd[pt] = 0;
         }
         gs.pnext = 255;
     }
@@ -40,6 +45,8 @@ static void gs_init(void)
     gs.sroot = 60;
     gs.pcur = 0;
     gs.pnext = 255;
+    gs.pdirty = 0;
+    gs.djf = 64;
     gs.rmask = 0x5555u;
     gs_load(0);
 }

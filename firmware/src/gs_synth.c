@@ -19,9 +19,8 @@
 #define SK_CTL 32                        /* samples a block */
 #define SK_FS 44100
 #define GS_NV 6                          /* voices */
-#define GS_NPRE 80                       /* factory patches: 32 trance, then 16 each of house, techno and garage */
+#define GS_NPRE 112                      /* factory patches: 40 trance, 24 each of house, techno and garage (gs_presets.h has the order) */
 #define GS_NWORLD 4
-static const unsigned char GS_W0[GS_NWORLD + 1] = {0, 32, 48, 64, 80};   /* where each world's patches start */
 #define GS_NS 128                        /* the longest pattern: 128 steps */
 #define GS_NP 8                          /* patterns A..H */
 
@@ -141,6 +140,15 @@ static struct {
     uint8_t sroot;                       /* the note a step of 12 plays (the keys move it while it runs) */
     uint32_t sclk, soff;                 /* samples into the step, and when its note ends */
     uint8_t sch[6], schn;                /* the notes the sequence has sounding: one, or a chord's */
+    uint8_t sx[GS_NP][GS_NS];            /* more about each step: bits 0-1 how many times it sounds, less one (a ratchet); bits 2-3 its chance (0: always, then 75, 50, 25 %) */
+    uint8_t psnd[GS_NP], ppre[GS_NP];    /* a pattern with a sound of its own (1), and the patch that sound came from */
+    uint8_t pp[GS_NP][P_N];              /* .. the sound: every parameter, taken up when the pattern starts and put back when it is left */
+    uint8_t pdirty;                      /* the patterns are the player's (written, recorded, loaded): a patch change leaves them alone */
+    uint8_t rat_n, rat_i, svel;          /* the ratchet: hits in this step, the next one due; the step's velocity */
+    uint8_t rch[6], rchn;                /* .. the notes it repeats */
+    int8_t rroot;
+    uint32_t rat_len;                    /* .. the time between them */
+    uint8_t mac, mkind, djf;             /* the performance macro: how far (0..127), which (GS_MAC_NAME); the DJ filter (64: out; under: low-pass closing; over: high-pass rising) */
     uint32_t wow_ph, flu_ph;             /* the tape: its slow wow and quick flutter */
     int32_t tape_pq;                     /* .. the pitch they add now, Q8 semitones */
     uint32_t met_ph, met_inc;            /* the metronome's click: phase, step */
@@ -491,6 +499,8 @@ static void gs_voices(int32_t *mix, uint32_t n)
         cutq += (int32_t)(((int64_t)(v->pitch - 15360) * p[P_KEY] * 142) >> 14);
         if (dst == 1u)
             cutq += (lfo * amt) >> 9;
+        if (gs.mkind == 0u)
+            cutq += (int32_t)gs.mac * 80;                         /* the macro's BUILD opens the filter */
         cutq = sk_clampi(cutq, 0, 127 * 256 - 1);
         gs.cut_idx = (uint32_t)cutq;
         {
@@ -889,6 +899,7 @@ static int32_t gs_click_sample(void)                               /* one sample
 /* With the chords on, a step's note is the root of a chord: the chord instrument gives its notes through this (it returns how
  * many, up to six). Unset, a step is one note. gs_norec: a key that should sound but not be written (a chord's own notes). */
 static int (*gs_seq_chord)(int note, uint8_t *out);
+static void gs_pat_enter(uint32_t p);
 static uint8_t gs_norec;
 static void gs_seq_off(void)                                       /* what the sequence has sounding, let go */
 {
@@ -928,10 +939,39 @@ static void gs_pat_select(uint32_t p)
     if (p >= GS_NP)
         return;
     if (!gs.srun) {
-        gs.pcur = (uint8_t)p;
+        gs_pat_enter(p);
         gs.pnext = 255;
     } else
         gs.pnext = p == gs.pcur ? 255u : (uint8_t)p;
+}
+
+#define SX_RAT(x) ((int)((x) & 3u) + 1)
+#define SX_CH(x) ((int)(((x) >> 2) & 3u))
+#define GS_NMAC 4
+static const char *const GS_MAC_NAME[GS_NMAC] = {"BUILD", "WASH", "DARK", "CRUSH"};
+static void gs_mode_changed(void);
+
+/* the sequence moves to a pattern: the one left takes its sound back if it has its own, and the one entered brings its own if it has */
+static void gs_pat_enter(uint32_t p)
+{
+    uint32_t i;
+    if (p >= GS_NP || p == gs.pcur)
+        return;
+    if (gs.psnd[gs.pcur]) {
+        for (i = 0; i < P_N; i++)
+            gs.pp[gs.pcur][i] = gs.p[i];
+        gs.ppre[gs.pcur] = gs.preset;
+    }
+    gs.pcur = (uint8_t)p;
+    if (gs.psnd[p]) {
+        uint8_t vm = gs.p[P_VMODE], ao = gs.p[P_AON];
+        for (i = 0; i < P_N; i++)
+            if (i != P_SRATE && i != P_SSWG && i != P_SGATE && i != P_SMET)      /* (how the sequence runs is not part of a sound) */
+                gs.p[i] = gs.pp[p][i];
+        gs.preset = (uint8_t)(gs.ppre[p] % GS_NPRE);
+        if (vm != gs.p[P_VMODE] || ao != gs.p[P_AON])
+            gs_mode_changed();
+    }
 }
 
 static uint32_t gs_seq_len(void)                                   /* how long the step now playing lasts, in 1/256 samples: the rate, the swing on the odd ones */
@@ -952,7 +992,7 @@ static void gs_seq_step(void)
     else
         s = gs.sstep + 1u >= len ? 0u : gs.sstep + 1u;
     if (s == 0u && gs.pnext != 255u) {                             /* the end of the pass: the queued pattern starts */
-        gs.pcur = gs.pnext;
+        gs_pat_enter(gs.pnext);
         gs.pnext = 255;
     }
     gs.sstep = (uint8_t)s;
@@ -963,7 +1003,23 @@ static void gs_seq_step(void)
         if (gs.soff > cur - (8u << GS_Q))
             gs.soff = cur - (8u << GS_Q);                           /* (a note ends before the next step starts) */
     }
-    gs.sslide = (uint8_t)(SP_ON(f) && SP_SLD(f));
+    gs.rat_n = 1;
+    gs.rat_i = 1;
+    if (SP_ON(f)) {
+        uint32_t x = gs.sx[gs.pcur][s], ch = (uint32_t)SX_CH(x);
+        if (ch && (sk_rand() & 3u) < ch)                           /* its chance: this time it stays silent */
+            f = 0;
+        else if (SX_RAT(x) > 1) {                                  /* a ratchet: the step's time is cut into that many hits */
+            uint32_t cur = gs_seq_len();
+            gs.rat_n = (uint8_t)SX_RAT(x);
+            gs.rat_len = cur / gs.rat_n;
+            gs.soff = (uint32_t)(((uint64_t)gs.rat_len * (uint32_t)(8 + gs.p[P_SGATE])) >> 7);
+            if (gs.soff > gs.rat_len - (8u << GS_Q))
+                gs.soff = gs.rat_len - (8u << GS_Q);
+        }
+    }
+    gs.svel = SP_ACC(f) ? 127u : 92u;
+    gs.sslide = (uint8_t)(SP_ON(f) && SP_SLD(f) && gs.rat_n == 1u);
     if (SP_ON(f)) {
         int note = (int)gs.sroot + SP_NOTE(f) - 12, n = 1, i, j;
         uint8_t nn[6], was[6], nwas = gs.schn;
@@ -989,6 +1045,12 @@ static void gs_seq_step(void)
             gs.schn = (uint8_t)n;
         }
         gs.snote = (int8_t)note;
+        if (gs.rat_n > 1u) {                                       /* (a ratchet keeps the notes for its later hits) */
+            for (i = 0; i < (int)gs.schn; i++)
+                gs.rch[i] = gs.sch[i];
+            gs.rchn = gs.schn;
+            gs.rroot = (int8_t)note;
+        }
     } else if (old >= 0)
         gs_seq_off();
 }
@@ -1009,6 +1071,7 @@ static void gs_seq_rec(uint32_t note)
     }
     n = (int)note - ((int)gs.sroot - 12);
     n = n < 0 ? 0 : n > 36 ? 36 : n;
+    gs.pdirty = 1;
     gs.sp[gs.pcur][s] = SP_MAKE(n, 0, 0);
     gs.rec_step = (uint8_t)s;
     gs.rec_n++;
@@ -1080,7 +1143,20 @@ static void gs_tick(uint32_t n)
         else {
             uint32_t len;
             gs.sclk += nq;
-            if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff)
+            if (gs.rat_i < gs.rat_n && gs.sclk >= gs.rat_i * gs.rat_len) {   /* the next hit of a ratchet: the same notes again */
+                uint32_t i, base = gs.rat_i * gs.rat_len;
+                gs_seq_off();
+                for (i = 0; i < gs.rchn; i++) {
+                    gs_note_on(gs.rch[i], gs.svel);
+                    gs.sch[i] = gs.rch[i];
+                }
+                gs.schn = gs.rchn;
+                gs.snote = gs.rroot;
+                gs.soff = base + (uint32_t)(((uint64_t)gs.rat_len * (uint32_t)(8 + gs.p[P_SGATE])) >> 7);
+                if (gs.soff > base + gs.rat_len - (8u << GS_Q))
+                    gs.soff = base + gs.rat_len - (8u << GS_Q);
+                gs.rat_i++;
+            } else if (gs.snote >= 0 && !gs.sslide && gs.sclk >= gs.soff)
                 gs_seq_off();
             while (gs.sclk >= (len = gs_seq_len())) {              /* a step ends: what ran over it is kept, so the steps never lose time */
                 gs.sclk -= len;

@@ -2,10 +2,10 @@
 
 A synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N) in four worlds you step between: TRANCE (supersaw leads from euphoric to haunting, rolling bass, a gate, a glitch engine), HOUSE (hazy FM keys, organs, donk bass, one-key chords, a sidechain-style pump), TECHNO (acid lines, metal, drones, noise) and GARAGE (reese and organ basses, bell stabs, the shuffle). No drums: it is made to sit beside your drum machine and to keep time with it, on its own clock or following MIDI clock. The screen is a small 3D world in pixels, with a scene and colours for each world.
 
-![Home](docs/images/home.png) ![House](docs/images/house.png) ![Techno](docs/images/techno.png) ![Garage](docs/images/garage.png) ![Effects](docs/images/edit.png) ![Save](docs/images/save.png) ![Glitch](docs/images/glitch.png)
+![Home](docs/images/home.png) ![House](docs/images/house.png) ![Techno](docs/images/techno.png) ![Garage](docs/images/garage.png) ![Effects](docs/images/edit.png) ![Save](docs/images/save.png) ![Glitch](docs/images/glitch.png) ![Perform](docs/images/perform.png) ![Step](docs/images/step.png)
 
 ## What it does
-- **Four worlds:** patches 1–32 are TRANCE, then 16 each of HOUSE, TECHNO and GARAGE. PRESETS runs through all of them; ALGORITHM on the home page steps to the next world (to the patch you last used there). The world sets the look; the sequencer and the save slots are shared.
+- **Four worlds:** 40 TRANCE patches, then 24 each of HOUSE, TECHNO and GARAGE. PRESETS runs through all of them; ALGORITHM on the home page steps to the next world (to the patch you last used there). The world sets the look; the sequencer and the save slots are shared.
 - **Oscillators:** supersaw (seven detuned saws), hyper sync, PWM stack, roll bass, feedback, FM keys, drawbar organ, donk (an FM bass), metal (inharmonic FM), noise, reese, plus a sub. Six voices.
 - **Filter:** state-variable, LP12 / LP24 / band / high / vowel. Two ADSR envelopes, one LFO (pitch, filter, amp, colour, detune), glide, poly / mono / legato, hold.
 - **Step sequencer:** up to 128 steps in eight patterns (A–H). Press SEQ, then REC: a one-bar count-in with the metronome, and then you play and the notes drop onto the line you can see running. PLAY runs and stops it. ALGORITHM switches pattern (it waits for the end of the pass), and every knob and parameter stays live while it plays. SAVE keeps eighteen slots, each with all eight patterns and every sound setting. With the chords on, each step is a root and plays its chord, in whatever voicing, scale and key the chord page has now. No drums, only notes and a click.
@@ -16,7 +16,9 @@ A synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N) in four worlds you ste
 - **Reverb:** four diffusers into an eight-line feedback network; the lows are kept out of the loop and four lines sway, so the tail is a wash with no pitch of its own.
 - **Arpeggiator:** 8 patterns, rates, octaves, gate length.
 - **Effects:** drive, bit crush, tape (wow, flutter and a darker top), ensemble chorus, glitch (stutter, reverse, tape stop, drop-out; hold REC to fire by hand), tempo-synced ping-pong echo, reverb, soft-limited master.
-- **80 factory patches** (32 trance, 16 each of house, techno and garage) and 18 save slots.
+- **Steps with repeats and chance:** SEQ again opens STEP: K2 makes a step sound two, three or four times in its own time (a ratchet), K3 lets it sound always or 75 / 50 / 25 % of the time, K4 lets the pattern keep a sound of its own, so that A can be a bass and B the chords. Changing patch keeps the notes you have written.
+- **Performance page:** HOME, HOME again: one MACRO knob (BUILD, WASH, DARK or CRUSH), a DJ filter (left low-pass, right high-pass, the middle open) and the pump's depth. ALGORITHM switches pattern there. None of it changes the patch.
+- **112 factory patches** (40 trance, 24 each of house, techno and garage) and 18 save slots. A slot keeps the sound, the tempo, all eight patterns with their repeats and chances, and the patterns' own sounds. Slots saved by any earlier version are read as they are and never rewritten.
 
 ## Controls
 K1–K4: the page's four parameters. ALGORITHM: the page's other parameters. PRESETS: patch. SELECT: tempo. EDIT / SCL / ENV / LFO / FX / ARP / SEQ / GLO: oscillator, filter, envelopes, LFO, effects, arp, sequencer and glitch pages (SEQ again: its setup; GLO again: the gate and the pump). PLAY: hold, or run / stop on the sequencer pages (SEQ again: setup, again: bar tools). On the editing pages OCT± jumps a bar. REC held: glitch. OCT±: octave. SAVE: slots. The 27 keys play from C3.

@@ -81,12 +81,13 @@ static uint32_t dev_samples, last_ui, booted;
 static uint32_t web_cpu;
 
 /* the saved slots live in this buffer; the page keeps them in localStorage (web_store_set before web_boot to restore) */
-static uint8_t web_store[SV_SECT * 4096];
+#define WEB_NSEC (SV_NEW0 + SV_N)                 /* the six older sectors and a sector a slot */
+static uint8_t web_store[WEB_NSEC * 4096];
 static uint32_t web_store_len, web_store_gen;
 static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
 {
     uint32_t i;
-    if (sec >= SV_SECT || n > 4096u || (sec + 1u) * 4096u > web_store_len)
+    if (sec >= WEB_NSEC || n > 4096u || (sec + 1u) * 4096u > web_store_len)
         return -1;
     for (i = 0; i < n; i++)
         ((uint8_t *)dst)[i] = web_store[sec * 4096u + i];
@@ -95,7 +96,7 @@ static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
 static int sk_store_write(uint32_t sec, const void *src, uint32_t n)
 {
     uint32_t i;
-    if (sec >= SV_SECT || n > 4096u)
+    if (sec >= WEB_NSEC || n > 4096u)
         return -1;
     for (i = 0; i < n; i++)
         web_store[sec * 4096u + i] = ((const uint8_t *)src)[i];

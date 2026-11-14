@@ -23,7 +23,8 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
+#define UI_SEQP() (ui.page == PG_SEQ || ui.page == PG_SEQ4 || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)   /* one of the sequencer's pages is open */
 
 static int32_t sk_in_enc(uint32_t role);
 static void sk_in_buttons(uint32_t *held, uint32_t *pressed);
@@ -58,9 +59,11 @@ static const ui_page_t UI_PG[PG_N] = {
     {"GATE + PUMP", {"PATT", "RATE", "DEPTH", "SMOOTH"}, {P_GPAT, P_GRATE, P_GDEP, P_GSMO}, P_GPAT, 1},
     {"GLITCH", {"ODDS", "LENGTH", "KIND", "CRUSH"}, {P_GLP, P_GLL, P_GLT, P_CRU}, P_GLT, 2},
     {"SEQUENCER", {"STEP", "NOTE", "TYPE", "LENGTH"}, {255, 255, 255, 255}, 255, 1},
+    {"SEQ STEP", {"STEP", "REPEAT", "CHANCE", "SOUND"}, {255, 255, 255, 255}, 255, 1},
     {"SEQ SETUP", {"RATE", "SWING", "GATE", "CLICK"}, {P_SRATE, P_SSWG, P_SGATE, P_SMET}, 255, 1},
     {"SEQ TOOLS", {"CLEAR", "COPY", "FILL", "SHIFT"}, {255, 255, 255, 255}, 255, 1},
     {"CHORDS", {"KEY", "SCALE", "LAYOUT", "VOICE"}, {P_CKEY, P_CSCL, P_CLAY, P_CVOI}, P_CON, 0},
+    {"PERFORM", {"MACRO", "KIND", "DJ FILT", "PUMP"}, {255, 255, 255, P_GDEP}, 255, 0},
     {"SAVE", {"SLOT", "DO", "CLOCK", "BATTERY"}, {255, 255, 255, 255}, 255, 0},
 };
 
@@ -95,6 +98,23 @@ static struct {                                           /* the sector in hand 
     uint32_t sum;
 } sv;
 static uint8_t sv_sec = 255;                              /* which sector sv holds */
+/* 1.2 keeps a slot to a sector, in eighteen sectors of its own under the six above. A slot now also holds each step's repeat and
+ * chance, each pattern's own sound, and room kept for a recorded knob. The six older sectors are only ever read: a slot that has no
+ * sector of its own yet is taken from them, so what an older version saved is still there after any number of updates and saves. */
+#define SV_NEW0 SV_SECT                                   /* the first of the new sectors */
+#define SV4_SX (SV_SLOT)                                  /* the offsets of what a new slot adds: the steps' extras */
+#define SV4_PSND (SV4_SX + GS_NP * GS_NS)                 /* which patterns keep a sound */
+#define SV4_PPRE (SV4_PSND + GS_NP)                       /* the patch each began as */
+#define SV4_PP (SV4_PPRE + GS_NP)                         /* their parameters */
+#define SV4_MOT (SV4_PP + GS_NP * P_N)                    /* kept for a recorded knob: a parameter a pattern, a value a step */
+#define SV4_SLOT (SV4_MOT + GS_NP + GS_NP * GS_NS)
+static struct {
+    uint32_t magic;
+    uint8_t d[SV4_SLOT];
+    uint32_t sum;
+} s4;
+static uint8_t s4_slot = 255;                             /* which slot s4 holds */
+#define SV4_MAGIC 0x34545347u                /* "GST4" */
 static uint32_t sv_full;                                  /* a bit a slot: kept */
 #define SV_MAGIC 0x33545347u                 /* "GST3" */
 
@@ -126,13 +146,7 @@ static char *ui_str(char *p, const char *s)
 }
 
 /* the world a patch belongs to: trance (the first 32 patches), house, techno, garage (16 each). It sets the look and nothing else. */
-static int ui_world(void)
-{
-    int w = 0;
-    while (w < GS_NWORLD - 1 && gs.preset >= GS_W0[w + 1])
-        w++;
-    return w;
-}
+static int ui_world(void) { return GS_PWORLD[gs.preset % GS_NPRE]; }
 static const char *const UI_WORLD[GS_NWORLD] = {"TRANCE", "HOUSE", "TECHNO", "GARAGE"};
 
 #include "gs_chord.c"
@@ -248,6 +262,23 @@ static void sv_pack(uint8_t *d)
         for (k = 0; k < GS_NS; k++)
             d[4u + P_N + GS_NP + i * GS_NS + k] = gs.sp[i][k];
     }
+    if (gs.psnd[gs.pcur]) {                                 /* the pattern playing keeps its sound: as it is now */
+        for (i = 0; i < P_N; i++)
+            gs.pp[gs.pcur][i] = gs.p[i];
+        gs.ppre[gs.pcur] = gs.preset;
+    }
+    for (i = 0; i < GS_NP; i++) {
+        uint32_t k;
+        for (k = 0; k < GS_NS; k++)
+            d[SV4_SX + i * GS_NS + k] = gs.sx[i][k];
+        d[SV4_PSND + i] = gs.psnd[i];
+        d[SV4_PPRE + i] = gs.ppre[i];
+        for (k = 0; k < P_N; k++)
+            d[SV4_PP + i * P_N + k] = gs.pp[i][k];
+    }
+    for (i = SV4_MOT; i < SV4_SLOT; i++)
+        d[i] = 0;
+    d[3] = (uint8_t)(((uint32_t)gs.oct & 7u) | ((uint32_t)gs.pcur << 3));     /* the octave, and the pattern it was on */
 }
 static void sv_unpack(const uint8_t *d)
 {
@@ -256,7 +287,10 @@ static void sv_unpack(const uint8_t *d)
     gs.acur = -1;
     gs.preset = (uint8_t)(d[1] % GS_NPRE);
     gs.bpm = (uint8_t)ui_clamp(d[2], 40, 200);
-    gs.oct = (int8_t)ui_clamp((int8_t)d[3], -2, 2);
+    {
+        int o = (int)(d[3] & 7u);                           /* (three bits, signed: an older slot's whole byte reads the same) */
+        gs.oct = (int8_t)ui_clamp(o > 3 ? o - 8 : o, -2, 2);
+    }
     for (i = 0; i < P_N; i++) {
         int v = d[4u + i] & 127;
         gs.p[i] = (uint8_t)ui_clamp(v, 0, ui_maxv(i));
@@ -271,10 +305,23 @@ static void sv_unpack(const uint8_t *d)
             gs.sp[i][k] = (uint8_t)((b & 0xC0u) | (uint8_t)ui_clamp(b & 63, 0, 37));
         }
     }
-    gs.pcur = 0;
+    for (i = 0; i < GS_NP; i++) {
+        uint32_t k;
+        for (k = 0; k < GS_NS; k++)
+            gs.sx[i][k] = (uint8_t)(d[SV4_SX + i * GS_NS + k] & 15u);
+        gs.psnd[i] = (uint8_t)(d[SV4_PSND + i] & 1u);
+        gs.ppre[i] = (uint8_t)(d[SV4_PPRE + i] % GS_NPRE);
+        for (k = 0; k < P_N; k++)
+            gs.pp[i][k] = (uint8_t)ui_clamp(d[SV4_PP + i * P_N + k] & 127, 0, ui_maxv(k));
+        if (gs.pp[i][P_ARNG] < 1u)
+            gs.pp[i][P_ARNG] = 1;
+    }
+    gs.pcur = (d[3] & 0xC0u) ? 0u : (uint8_t)((d[3] >> 3) % GS_NP);      /* (an older slot, with the octave below zero, has every bit set) */
     gs.pnext = 255;
     gs.snote = -1;
     gs.sslide = 0;
+    gs.pdirty = 1;                                          /* the notes are the slot's: a change of patch keeps them */
+    gs_mode_changed();
 }
 /* 0.6.0 and 0.6.1 kept six slots, each with four patterns, in one sector ("GST2"). While that sector is still in flash, its slots are
  * read from it and carried over to the new layout: slots 1-3 into sector 0 and 4-6 into sector 1. Sector 1 is written before sector 0
@@ -330,60 +377,73 @@ static void ui_sv_sec(uint32_t sec)                    /* bring a sector in (an 
     }
     sv_sec = (uint8_t)sec;
 }
+static uint32_t s4_sum(void)
+{
+    uint32_t i, h = 0x811C9DC5u;
+    for (i = 0; i < SV4_SLOT; i++)
+        h = (h ^ s4.d[i]) * 16777619u;
+    return h;
+}
+/* bring a slot in: from its own sector if it has one, else from where an older version kept it (s4.d[0] 0: nothing there) */
+static void ui_sv_slot(uint32_t slot)
+{
+    uint32_t i;
+    const uint8_t *o;
+    if (s4_slot == slot)
+        return;
+    s4_slot = (uint8_t)slot;
+    if (sk_store_read(SV_NEW0 + slot, &s4, sizeof s4) == 0 && s4.magic == SV4_MAGIC && s4.sum == s4_sum())
+        return;
+    for (i = 0; i < sizeof s4; i++)
+        ((uint8_t *)&s4)[i] = 0;
+    ui_sv_sec(slot / SV_PER);
+    o = sv.slot[slot % SV_PER];
+    if (!o[0])
+        return;
+    for (i = 0; i < SV_SLOT; i++)                           /* an older slot is the start of a new one: the rest is "nothing extra" */
+        s4.d[i] = o[i];
+}
 static void ui_store_load(void)
 {
-    uint32_t sec, i;
+    uint32_t i;
     sv_full = 0;
     sv_old_load();
-    for (sec = 0; sec < SV_SECT; sec++) {
-        sv_sec = 255;
-        ui_sv_sec(sec);
-        for (i = 0; i < SV_PER; i++)
-            if (sv.slot[i][0])
-                sv_full |= 1u << (sec * SV_PER + i);
+    sv_sec = 255;
+    for (i = 0; i < SV_N; i++) {
+        s4_slot = 255;
+        ui_sv_slot(i);
+        if (s4.d[0])
+            sv_full |= 1u << i;
     }
 }
 static void ui_do_save(uint32_t now)
 {
-    uint32_t sec = ui.slot / SV_PER, bit = 1u << ui.slot;
-    uint8_t *d;
-    if (ui.act != 0u && sec == 0u && sv_old_ok) {          /* the old store is about to be overwritten: carry the rest over first */
-        sv_sec = 255;
-        ui_sv_sec(1);
-        if (sk_store_write(1, &sv, sizeof sv) != 0) {
-            ui_toast("FAILED", now);
-            return;
-        }
-        sv_sec = 255;
-    }
-    ui_sv_sec(sec);
-    d = sv.slot[ui.slot % SV_PER];
+    uint32_t bit = 1u << ui.slot, i;
+    ui_sv_slot(ui.slot);
     if (ui.act == 0u) {
-        if (!d[0])
+        if (!s4.d[0])
             ui_toast("EMPTY", now);
         else {
-            sv_unpack(d);
+            sv_unpack(s4.d);
             ui_toast("LOADED", now);
             ui.pop_t = now;
         }
         return;
     }
     if (ui.act == 1u)
-        sv_pack(d);
-    else {
-        uint32_t i;
-        for (i = 0; i < SV_SLOT; i++)
-            d[i] = 0;
-    }
-    sv.magic = SV_MAGIC;
-    sv.sum = sv_sum();
-    if (sk_store_write(sec, &sv, sizeof sv) == 0) {
-        if (sec == 0u)
-            sv_old_ok = 0;
+        sv_pack(s4.d);
+    else
+        for (i = 0; i < SV4_SLOT; i++)                      /* (a cleared slot has a sector too: it hides the older copy) */
+            s4.d[i] = 0;
+    s4.magic = SV4_MAGIC;
+    s4.sum = s4_sum();
+    if (sk_store_write(SV_NEW0 + ui.slot, &s4, sizeof s4) == 0) {
         sv_full = ui.act == 1u ? sv_full | bit : sv_full & ~bit;
         ui_toast(ui.act == 1u ? "SAVED" : "CLEARED", now);
-    } else
+    } else {
+        s4_slot = 255;
         ui_toast("FAILED", now);
+    }
 }
 
 /* ------------------------------------------------------------------------ input --- */
@@ -407,7 +467,7 @@ static void ui_init(uint32_t safe)
     {
         uint32_t w;
         for (w = 0; w < GS_NWORLD; w++)
-            ui.wlast[w] = GS_W0[w];
+            ui.wlast[w] = GS_ORD[GS_W0[w]];
     }
     ui.theme_on = 99;
     fb_theme_snap(0);
@@ -462,7 +522,7 @@ static void ui_input(uint32_t now)
         ui.intro = 0, gs_intro_n = 0;
     /* pages */
     if (pr & (1u << SB_HOME)) {                                     /* HOME, and again: the chords */
-        ui.page = ui.page == PG_HOME ? PG_CHORD : PG_HOME;
+        ui.page = ui.page == PG_HOME ? PG_CHORD : ui.page == PG_CHORD ? PG_PERF : PG_HOME;      /* HOME, the chords, the performance page */
         if (ui.page == PG_CHORD)
             ui_toast(gs.p[P_CON] ? "CHORDS ON" : "ALGO TURN: CHORDS", now);
     }
@@ -478,6 +538,8 @@ static void ui_input(uint32_t now)
         ui_page_press(PG_FX, PG_FX2);
     if (pr & (1u << SB_SEQ)) {                                      /* the sequencer: edit, setup, tools, out */
         if (ui.page == PG_SEQ)
+            ui.page = PG_SEQ4;
+        else if (ui.page == PG_SEQ4)
             ui.page = PG_SEQ2;
         else if (ui.page == PG_SEQ2)
             ui.page = PG_SEQ3;
@@ -510,7 +572,7 @@ static void ui_input(uint32_t now)
             ui.page = PG_SAVE;
     }
     if (pr & (1u << SB_PLAY)) {
-        if (gs.srun || ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) {   /* the sequence runs, or its pages are open: PLAY runs and stops it (from any page once it runs) */
+        if (gs.srun || UI_SEQP()) {   /* the sequence runs, or its pages are open: PLAY runs and stops it (from any page once it runs) */
             if (gs.srun) {
                 gs_seq_stop();
                 ui_toast("STOP", now);
@@ -528,11 +590,11 @@ static void ui_input(uint32_t now)
             ui_toast(gs.hold ? "HOLD ON" : "HOLD OFF", now);
         }
     }
-    if ((pr & (1u << SB_REC)) && (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)) {   /* on the sequencer's pages REC arms recording */
+    if ((pr & (1u << SB_REC)) && UI_SEQP()) {   /* on the sequencer's pages REC arms recording */
         gs.srec = (uint8_t)!gs.srec;
         ui_toast(gs.srec ? (gs.srun ? "RECORDING" : "REC ARMED") : "REC OFF", now);
     }
-    gl.manual = (uint8_t)(((held >> SB_REC) & 1u) && !(ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3));   /* (the sequencer's pages use REC to record) */
+    gl.manual = (uint8_t)(((held >> SB_REC) & 1u) && !UI_SEQP());   /* (the sequencer's pages use REC to record) */
     if (pr & (1u << SB_OCTDN)) {
         if (gs.srun && gs.sroot >= 12u)
             gs.sroot = (uint8_t)(gs.sroot - 12u);
@@ -567,6 +629,7 @@ static void ui_input(uint32_t now)
                     n = ui_clamp(cd_pitch(v) - ((int)gs.sroot - 12), 0, 36);
                 }
                 if (wr) {
+                    gs.pdirty = 1;
                     gs.sp[gs.pcur][ui.cur] = (uint8_t)((gs.sp[gs.pcur][ui.cur] & 0xC0u) | (uint8_t)(n + 1));
                     ui_seq_grow(now);
                     ui.cur = (uint8_t)ui_clamp((int)ui.cur + 1, 0, GS_NS - 1);
@@ -591,7 +654,7 @@ static void ui_input(uint32_t now)
     d = ui_enc(SE_PRESET);
     if (d) {
         int w0 = ui_world();
-        ui_load_patch((uint32_t)((int)gs.preset + (d > 0 ? 1 : GS_NPRE - 1)), now);
+        ui_load_patch(GS_ORD[((int)GS_POS[gs.preset] + (d > 0 ? 1 : GS_NPRE - 1)) % GS_NPRE], now);      /* (the next in the shown order) */
         if (ui_world() != w0)                                       /* the list runs through both worlds: say so at the border */
             ui_toast(UI_WORLD[ui_world()], now);
     }
@@ -601,7 +664,7 @@ static void ui_input(uint32_t now)
         ui.hud_t = now;
     }
     d = ui_enc(SE_ALGO);
-    if (d && (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)) {   /* the pattern: A to D (running, the one picked starts at the end of this pass) */
+    if (d && (UI_SEQP() || ui.page == PG_PERF)) {   /* the pattern: A to H (running, the one picked starts at the end of this pass); on the performance page too */
         int cur = gs.pnext != 255u ? gs.pnext : gs.pcur, nx = ui_clamp(cur + (d > 0 ? 1 : -1), 0, GS_NP - 1);
         char tb[20], *tp;
         if (nx != cur || (gs.srun && gs.pnext != 255u)) {
@@ -631,11 +694,60 @@ static void ui_input(uint32_t now)
         d = ui_enc(SE_K1 + i);
         if (!d)
             continue;
+        if (ui.page == PG_SEQ4) {                                   /* the step's extras, and the pattern's sound */
+            int sg = d > 0 ? 1 : -1, quick = (d > 2 || d < -2);
+            uint8_t *x = &gs.sx[gs.pcur][ui.cur];
+            ui.k_t[i] = now;
+            ui.cur_t = now;
+            if (i == 0u)
+                ui.cur = (uint8_t)ui_clamp((int)ui.cur + (quick ? 16 : 1) * sg, 0, GS_NS - 1);
+            else if (i == 1u) {                                     /* REPEAT: the step sounds once, or two, three, four times in its time */
+                *x = (uint8_t)((*x & ~3u) | (uint32_t)ui_clamp((int)(*x & 3u) + sg, 0, 3));
+                gs.pdirty = 1;
+            } else if (i == 2u) {                                   /* CHANCE: always, or three times in four, half, one in four */
+                *x = (uint8_t)((*x & ~12u) | ((uint32_t)ui_clamp(SX_CH(*x) - sg, 0, 3) << 2));
+                gs.pdirty = 1;
+            } else {                                                /* SOUND: this pattern keeps a sound of its own (taken from the one playing now), or shares */
+                uint32_t k;
+                if (sg > 0 && !gs.psnd[gs.pcur]) {
+                    for (k = 0; k < P_N; k++)
+                        gs.pp[gs.pcur][k] = gs.p[k];
+                    gs.ppre[gs.pcur] = gs.preset;
+                    gs.psnd[gs.pcur] = 1;
+                    gs.pdirty = 1;
+                    ui_toast("OWN SOUND KEPT", now);
+                } else if (sg < 0 && gs.psnd[gs.pcur]) {
+                    gs.psnd[gs.pcur] = 0;
+                    ui_toast("SOUND SHARED", now);
+                }
+            }
+            continue;
+        }
+        if (ui.page == PG_PERF) {
+            ui.k_t[i] = now;
+            if (i == 0u)
+                gs.mac = (uint8_t)ui_clamp((int)gs.mac + d, 0, 127);
+            else if (i == 1u)
+                gs.mkind = (uint8_t)ui_clamp((int)gs.mkind + (d > 0 ? 1 : -1), 0, GS_NMAC - 1);
+            else if (i == 2u) {
+                int v = ui_clamp((int)gs.djf + d, 0, 127);
+                if ((gs.djf < 64u && v > 64) || (gs.djf > 64u && v < 64))    /* (it stops at the middle on the way through) */
+                    v = 64;
+                gs.djf = (uint8_t)v;
+            } else {                                                /* PUMP: the gate's depth; with the gate open, it becomes the 1/4 pump */
+                if (d > 0 && gs.p[P_GPAT] == 13u)
+                    gs_set(P_GPAT, GS_PUMP0);
+                gs_set(P_GDEP, (int)gs.p[P_GDEP] + d);
+            }
+            continue;
+        }
         if (ui.page == PG_SEQ) {
             int sg = d > 0 ? 1 : -1, quick = (d > 2 || d < -2);
             uint8_t *st = &gs.sp[gs.pcur][ui.cur], f = *st;
             ui.k_t[i] = now;
             ui.cur_t = now;
+            if (i)
+                gs.pdirty = 1;
             if (i == 0u) {                                          /* STEP: the cursor (a quick turn moves a bar) */
                 ui.cur = (uint8_t)ui_clamp((int)ui.cur + (quick ? 16 : 1) * sg, 0, GS_NS - 1);
             } else if (i == 1u) {                                   /* NOTE: the pitch of the step (a rest starts on the root) */
@@ -661,10 +773,11 @@ static void ui_input(uint32_t now)
             int sg = d > 0 ? 1 : -1, k;
             char tb[24], *tp;
             ui.k_t[i] = now;
+            gs.pdirty = 1;
             if (i == 0u) {
                 if (sg > 0) {
                     for (k = 0; k < GS_NS; k++)
-                        gs.sp[gs.pcur][k] = 0;
+                        gs.sp[gs.pcur][k] = gs.sx[gs.pcur][k] = 0;
                     tp = ui_str(tb, "PATTERN ");
                     *tp++ = (char)('A' + gs.pcur);
                     ui_str(tp, " CLEARED");
@@ -672,8 +785,10 @@ static void ui_input(uint32_t now)
                 }
             } else if (i == 1u) {
                 int src = (gs.pcur + (sg > 0 ? 1 : GS_NP - 1)) % GS_NP;
-                for (k = 0; k < GS_NS; k++)
+                for (k = 0; k < GS_NS; k++) {
                     gs.sp[gs.pcur][k] = gs.sp[src][k];
+                    gs.sx[gs.pcur][k] = gs.sx[src][k];
+                }
                 gs.spl[gs.pcur] = gs.spl[src];
                 tp = ui_str(tb, "COPIED FROM ");
                 *tp++ = (char)('A' + src);
@@ -729,7 +844,7 @@ static void ui_input(uint32_t now)
         static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && (ui.page == PG_SEQ2 || ui.page == PG_SEQ3))))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
@@ -1323,6 +1438,8 @@ static void vz_seq(uint32_t now)
         fb_text_c(x + 7, VY + 5, t, cur ? C_K1 : (nxt ? C_HOT : (filled ? C_O6 : C_INK2)));
         if (filled && !cur)
             fb_pset(x + 11, VY + 5, C_O6);                                     /* a pattern with notes in it */
+        if (gs.psnd[i])
+            fb_hline(x + 2, VY + 13, 9, cur ? C_K1 : C_R3);                    /* a pattern with a sound of its own */
     }
     {                                                                       /* where it is: the step, the length, and what it is doing */
         char *q = ui_str(b, gs.srec ? "REC " : run ? "PLAY " : "STOP ");
@@ -1363,6 +1480,14 @@ static void vz_seq(uint32_t now)
         else if (showcur && s == ui.cur)
             c = ((now >> 8) & 1u) ? C_HOT : C_O6;
         fb_rect(x, VY + 61, 11, 3, c);
+        if (!out && SP_ON(gs.sp[pc][s])) {
+            int r = SX_RAT(gs.sx[pc][s]), ch = SX_CH(gs.sx[pc][s]), k;
+            for (k = 1; k < r; k++)                                          /* a repeated step: its cell cut into as many */
+                fb_vline(x + k * 11 / r, VY + 61, 3, C_K1);
+            if (ch)                                                          /* a step left to chance: a dotted cell */
+                for (k = 0; k < 11; k += 2)
+                    fb_pset(x + k, VY + 62, C_K1);
+        }
         if ((i & 3) == 0) {
             char nb_[3];
             nb_[0] = (char)('1' + i / 4);
@@ -1379,10 +1504,20 @@ static void vz_seq(uint32_t now)
             q = ui_str(q, "REST");
         if (SP_ACC(f))
             q = ui_str(q, "!");
-        if (x < VX + 24) x = VX + 24;
-        if (x > VX + VW - 22) x = VX + VW - 22;
-        fb_rect(x - 18, VY + 17, 36, 13, C_K1);
-        fb_frame(x - 18, VY + 17, 36, 13, C_HOT);
+        if (ui.page == PG_SEQ4 && SP_ON(f)) {                                 /* on the step page: what the step does */
+            static const char *const CH[4] = {"", " 75%", " 50%", " 25%"};
+            q = ui_str(b, "x");
+            q = ui_num(q, SX_RAT(gs.sx[pc][s]));
+            q = ui_str(q, CH[SX_CH(gs.sx[pc][s])]);
+        }
+        {
+            int hw = fb_text_w(b) / 2 + 4;
+            if (hw < 18) hw = 18;
+            if (x < VX + 6 + hw) x = VX + 6 + hw;
+            if (x > VX + VW - 4 - hw) x = VX + VW - 4 - hw;
+            fb_rect(x - hw, VY + 17, 2 * hw, 13, C_K1);
+            fb_frame(x - hw, VY + 17, 2 * hw, 13, C_HOT);
+        }
         fb_text_c(x, VY + 17, b, C_HOT);
         if (s >= len)
             fb_text_c(VX + VW / 2, VY + 33, "PAST THE LENGTH", C_S4);
@@ -1580,8 +1715,8 @@ static void vz_save(uint32_t now)
         char b[40];
         int n = 0;
         const char *nm;
-        ui_sv_sec(ui.slot / SV_PER);
-        d = sv.slot[ui.slot % SV_PER];
+        ui_sv_slot(ui.slot);
+        d = s4.d;
         nm = d[0] ? GS_PRE[d[1] % GS_NPRE].name : "FREE";
         n = ui_num(b, ui.slot + 1) - b;
         b[n++] = ' ';
@@ -1591,6 +1726,59 @@ static void vz_save(uint32_t now)
         fb_rect(bx + 5, by + 61, 206, 13, C_K1);
         fb_text(bx + 9, by + 62, "MEMORY CARD", C_S4);
         fb_text_r(bx + 207, by + 62, b, d[0] ? C_O6 : C_INK2);
+    }
+}
+
+/* the performance page: the macro as a column that fills, with what it is doing named; the DJ filter as the band it lets through; the
+ * pump as a bar that ducks on the beat */
+static void vz_perf(uint32_t now)
+{
+    int m = gs.mac, f = gs.djf, k, x0 = VX + 92, w = 122, y0 = VY + 14, h = 44;
+    char b[8];
+    ui_glass(VX + 4, VY + 18, 80, 68, m ? C_O5 : C_S1);
+    fb_text_c(VX + 44, VY + 21, GS_MAC_NAME[gs.mkind % GS_NMAC], m ? C_HOT : C_O6);
+    g3_cam(VX + 44, VY + 55, 200, 200, 100);
+    {
+        int sz = 5 + m / 10, spin = (int)(now >> 3) * (1 + m / 24);
+        fb_clip(VX + 6, VY + 35, VX + 82, VY + 76);
+        g3_draw(&G3_ICO, 0, 0, 0, sz, sz, sz, spin / 3, spin, 0, m ? C_O0 : 255, 8, m > 100 ? 4 : (m ? 1 : 0), m ? C_O6 : C_S3);
+        fb_clip(VX, VY, VX + VW, VY + VH);
+    }
+    fb_rect(VX + 10, VY + 79, 68, 3, C_K2);
+    fb_rect(VX + 10, VY + 79, m * 68 / 127, 3, m > 100 ? C_R3 : C_O5);
+    /* the filter: flat where the sound passes, falling away where it is cut */
+    ui_glass(x0, VY + 4, w + 4, 62, f != 64 ? C_O5 : C_S1);
+    fb_micro(x0 + 5, VY + 9, "DJ FILTER", C_S4, 1);
+    fb_micro_r(x0 + w - 1, VY + 9, f < 64 ? "LOW PASS" : f > 64 ? "HIGH PASS" : "OPEN", f != 64 ? C_HOT : C_S3, 1);
+    {
+        int cut = f < 64 ? 6 + f * (w - 12) / 64 : 6 + (f - 64) * (w - 12) / 64, py = -1;
+        for (k = 2; k < w; k++) {
+            int d = f < 64 ? k - cut : f > 64 ? cut - k : 0, y = d <= 0 ? 6 : 6 + d * 3;
+            if (d > -7 && d <= 0 && f != 64)                                 /* the bump at the corner */
+                y = 6 - (7 + d) / 2;
+            if (y > h - 2)
+                y = h - 2;
+            if (py >= 0)
+                fb_line(x0 + k - 1, y0 + py, x0 + k, y0 + y, f != 64 ? C_HOT : C_O5);
+            if (y < h - 2 && (k & 1))
+                fb_vline(x0 + k, y0 + y + 2, h - 2 - y, C_O1);
+            py = y;
+        }
+        fb_hline(x0 + 2, y0 + h, w, C_S1);
+    }
+    /* the pump */
+    {
+        int dep = gs.p[P_GDEP];
+        ui_glass(x0, VY + 70, w + 4, 16, C_S1);
+        fb_micro(x0 + 5, VY + 76, "PUMP", C_S4, 1);
+        for (k = 0; k < 16; k++) {
+            int beat = (k & 3), lv = 6 - (3 - beat) * dep / 64;
+            if (lv < 1)
+                lv = 1;
+            fb_rect(x0 + 36 + k * 5, VY + 82 - lv, 4, lv, beat == 0 ? C_O3 : C_O5);
+        }
+        ui_num(b, dep);
+        fb_micro_r(x0 + w - 1, VY + 76, b, dep ? C_HOT : C_S3, 1);
     }
 }
 
@@ -1698,6 +1886,8 @@ static void ui_header(uint32_t now)
         fb_hline(6 + k, 10 + k, 7 - 2 * k, (uint8_t)(C_O3 - (k > 1)));
     fb_micro(17, 8, UI_WORLD[w], C_O6, 1);
     fb_text_c(120, 3, "GARTSTRINGER", C_INK);
+    if (gs.mac || gs.djf != 64u)                                                     /* the performance page is doing something */
+        fb_micro(165, 9, "FX", ((now >> 8) & 1u) ? C_HOT : C_R3, 0);
     ui_num(b, gs.bpm);
     fb_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_O6);
     fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_S4, 0);        /* (EXT: the tempo is an outside clock's) */
@@ -1712,7 +1902,7 @@ static void ui_header(uint32_t now)
 static void ui_status(uint32_t now)
 {
     char b[28], *p;
-    int i, w = ui_world(), num = (int)gs.preset + 1 - (int)GS_W0[w];
+    int i, w = ui_world(), num = (int)GS_POS[gs.preset] + 1 - (int)GS_W0[w];
     b[0] = (char)('0' + num / 10);
     b[1] = (char)('0' + num % 10);
     b[2] = 0;
@@ -1852,9 +2042,13 @@ static void ui_draw(uint32_t now)
         vz_glitch(now);
         break;
     case PG_SEQ:
+    case PG_SEQ4:
     case PG_SEQ2:
     case PG_SEQ3:
         vz_seq(now);
+        break;
+    case PG_PERF:
+        vz_perf(now);
         break;
     case PG_CHORD:
         vz_chord(now);
@@ -1865,7 +2059,7 @@ static void ui_draw(uint32_t now)
     }
     fb_unclip();
     /* the page's name in the window's corner, the level at its right */
-    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE && ui.page != PG_CHORD && ui.page != PG_SEQ && ui.page != PG_SEQ2 && ui.page != PG_SEQ3)
+    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE && ui.page != PG_CHORD && !UI_SEQP())
     {
         fb_rect(VX + 2, VY + 1, fb_text_w(pg->name) + 5, 12, C_BG);          /* (whatever the scene has there stays behind the name) */
         fb_text(VX + 4, VY + 3, pg->name, C_O6);
@@ -1955,6 +2149,62 @@ static void ui_draw(uint32_t now)
                 fb_text2_c(cx, 156 + 27, b, C_O6, 0);
             }
             ui_ov_m = 0;
+        } else if (ui.page == PG_SEQ4) {
+            static const char *const CH[4] = {"ALWAYS", "75%", "50%", "25%"};
+            char b[12];
+            uint8_t x = gs.sx[gs.pcur][ui.cur];
+            int cx = 6 + (int)i * 58 + 27;
+            if (i == 0u) {
+                ui_num(b, ui.cur + 1);
+                ui_ov_v = ui.cur;
+                ui_ov_m = GS_NS - 1;
+                ui_plate(0, pg->k[0], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, C_O6, 0);
+            } else if (i == 1u) {
+                char *q = ui_str(b, "x");
+                ui_num(q, SX_RAT(x));
+                ui_ov_v = SX_RAT(x) - 1;
+                ui_ov_m = 3;
+                ui_plate(1, pg->k[1], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, SX_RAT(x) > 1 ? C_HOT : C_O6, 0);
+            } else if (i == 2u) {
+                ui_ov_v = 3 - SX_CH(x);
+                ui_ov_m = 3;
+                ui_plate(2, pg->k[2], 255, now, 1);
+                fb_text_c(cx, 156 + 31, CH[SX_CH(x)], SX_CH(x) ? C_HOT : C_O6);
+            } else {
+                ui_ov_v = gs.psnd[gs.pcur];
+                ui_ov_m = 1;
+                ui_plate(3, pg->k[3], 255, now, 1);
+                fb_text_c(cx, 156 + 31, gs.psnd[gs.pcur] ? "OWN" : "SHARED", gs.psnd[gs.pcur] ? C_HOT : C_O6);
+            }
+            ui_ov_m = 0;
+        } else if (ui.page == PG_PERF && i < 3u) {
+            char b[12];
+            int cx = 6 + (int)i * 58 + 27;
+            if (i == 0u) {
+                ui_num(b, gs.mac);
+                ui_ov_v = gs.mac;
+                ui_ov_m = 127;
+                ui_plate(0, pg->k[0], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, gs.mac ? C_HOT : C_O6, 0);
+            } else if (i == 1u) {
+                ui_ov_v = gs.mkind;
+                ui_ov_m = GS_NMAC - 1;
+                ui_plate(1, pg->k[1], 255, now, 1);
+                fb_text_c(cx, 156 + 31, GS_MAC_NAME[gs.mkind % GS_NMAC], C_O6);
+            } else {
+                int v = (int)gs.djf - 64;
+                char *q = b;
+                if (v > 0)
+                    *q++ = '+';
+                ui_num(q, v);
+                ui_ov_v = gs.djf;
+                ui_ov_m = 127;
+                ui_plate(2, pg->k[2], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, v ? b : "0", v ? C_HOT : C_O6, 0);
+            }
+            ui_ov_m = 0;
         } else if (ui.page == PG_SEQ3) {
             static const char *const TH[3] = {"TURN >", "A < B", "ROLL"};
             char b[12], *p = b;
@@ -1983,7 +2233,7 @@ static void ui_draw(uint32_t now)
     }
     if (ui.toast_t && now - ui.toast_t < 1200u) {
         int w = fb_text_w(ui.toast) + 20;
-        int ty = (ui.page == PG_SEQ || ui.page == PG_SEQ2 || ui.page == PG_SEQ3) ? 54 : ui.page == PG_CHORD ? 40 : 92;
+        int ty = UI_SEQP() ? 54 : ui.page == PG_CHORD ? 40 : 92;
         ui_glass(120 - w / 2, ty, w, 20, C_O5);
         fb_text_c(120, ty + 3, ui.toast, C_HOT);
     }
