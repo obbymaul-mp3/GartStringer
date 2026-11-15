@@ -33,7 +33,7 @@ extern void isr_alnk0(void);
 /* ---------------------------------------------------------------- interrupts --- */
 void fm1_timer5_irq(void)
 {
-    static uint32_t last, acc, sub, owed;
+    static uint32_t last, acc, sub, owed, uat;
     uint32_t t0 = fm1_ticks();
     fm1_timer5_ack();
     fm1_input_tick();
@@ -47,10 +47,12 @@ void fm1_timer5_irq(void)
         owed = 1;                                      /* 2 kHz: all USB SIE traffic lives here (usb.c) */
     if (++sub == 10u)
         sub = 0;
-    if (sub & 1u)
-        ua_service();                                  /* the recording's endpoint, 5 kHz, nested in a render too: a packet has
-                                                        * to be ready every millisecond (it touches the SIE only while a host
+    if (++uat >= 3u) {
+        uat = 0;
+        ua_service();                                  /* the recording's endpoint, every 300 us, nested in a render too: a packet
+                                                        * has to be ready every millisecond (it touches the SIE only while a host
                                                         * records; nothing else does outside this interrupt) */
+    }
     if (sk_in_audio || !owed)
         return;                                        /* nested in a render: the next tick polls (owed stays) */
     owed = 0;

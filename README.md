@@ -13,6 +13,7 @@ A synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N) in four worlds you ste
 - **Gate and pump:** 16 steps, 14 gate patterns (one random), rate and smoothing; and two pumps (1/4, 1/8) that duck the sound on the beat and let it swell back, like a compressor keyed by a kick.
 - **Clock:** every length is kept to 1/256 of a sample and no step drops what ran over it, and the sample rate is measured against the 24 MHz crystal and corrected, so the tempo holds beside other hardware (`tools/host/gs_clock_test.c` checks ten minutes at several tempos).
 - **MIDI clock:** send clock to the MIDI IN jack or over USB and every clock here follows it (24 ticks a beat; Start, Continue and Stop run the sequencer); the top bar shows EXT and the tempo it measures. Half a second without a tick and the instrument is on its own clock again.
+- **USB audio:** the FM-1 is also a recording device ("GartStringer In": stereo, 16-bit, 48 kHz) carrying its own output, for a phone or a computer. Hold REC at power-on to leave it out (MIDI only).
 - **Keys over USB:** every key is sent to the host as a MIDI note (channel 1, velocity 100; the octave buttons move it), so the FM-1 plays an app or a DAW as well as itself.
 - **Reverb:** four diffusers into an eight-line feedback network; the lows are kept out of the loop and four lines sway, so the tail is a wash with no pitch of its own.
 - **Arpeggiator:** 8 patterns, rates, octaves, gate length.
