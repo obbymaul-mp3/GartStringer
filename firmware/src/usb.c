@@ -132,13 +132,23 @@ static int midi_enqueue(uint32_t pkt, uint32_t source)
     return 1;
 }
 
-static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
+static void midi_out_event(uint32_t pkt)            /* one producer only: the main loop (the keys) */
 {
     if (usb.config && mo_w - mo_r < MQ) {
         midi_out_q[mo_w % MQ] = pkt;
         RING_PUBLISH();
         mo_w++;
     }
+}
+/* a key to the host, as a note on channel 1 (dropped while no host has configured the port, or its ring is full) */
+static void fm1_usb_midi_note(int on, uint32_t note, uint32_t velocity)
+{
+    note &= 127u;
+    velocity &= 127u;
+    if (on)
+        midi_out_event(0x09u | (0x90u << 8) | (note << 16) | (velocity << 24));
+    else
+        midi_out_event(0x08u | (0x80u << 8) | (note << 16));
 }
 
 /* ------------------------------------------------------- descriptors --- */

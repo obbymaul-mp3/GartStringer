@@ -93,6 +93,7 @@ static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
         ((uint8_t *)dst)[i] = web_store[sec * 4096u + i];
     return 0;
 }
+static void sk_midi_note(int on, uint32_t note, uint32_t vel) { (void)on; (void)note; (void)vel; }
 static int sk_store_write(uint32_t sec, const void *src, uint32_t n)
 {
     uint32_t i;

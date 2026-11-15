@@ -56,6 +56,8 @@ void fm1_timer5_irq(void)
 
 /* What MIDI has brought, from the jack or USB, taken between halves of audio: the clock's ticks, Start, Continue and Stop go to
  * the tempo (gs_synth.c gs_ext_*); the rest is let go. If the ring ran over, it is emptied. */
+static void sk_midi_note(int on, uint32_t note, uint32_t vel) { fm1_usb_midi_note(on, note, vel); }
+
 static void sk_midi_drain(void)
 {
     while (mi_r != mi_w) {

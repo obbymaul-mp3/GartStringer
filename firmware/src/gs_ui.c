@@ -33,6 +33,7 @@ static void sk_led_btn(uint32_t label, uint32_t level);
 static void sk_led_key(uint32_t n, uint32_t level);
 static int sk_store_read(uint32_t sec, void *dst, uint32_t n);            /* the saved slots, a 4 KB sector at a time: 0 ok */
 static int sk_store_write(uint32_t sec, const void *src, uint32_t n);
+static void sk_midi_note(int on, uint32_t note, uint32_t vel);     /* a key, sent to the USB host */
 
 /* the audio interrupt's load, % of the time it has (the hardware layer fills these; 0 on a computer) */
 static volatile uint32_t sk_cpu_pct, sk_cpu_max, sk_late;
@@ -613,7 +614,8 @@ static void ui_input(uint32_t now)
         ui.con_prev = gs.p[P_CON];
         ui_toast(gs.p[P_CON] ? "CHORDS ON" : "CHORDS OFF", now);
     }
-    /* the keys: 27 notes from C3, moved by the octave */
+    /* the keys: 27 notes from C3, moved by the octave. Each also goes to the USB host as a note (the key itself, whatever the chords or
+     * the sequencer make of it here) */
     for (i = 0; i < 27u; i++) {
         uint32_t on = (keys >> i) & 1u;
         int note = 48 + 12 * gs.oct + (int)i;
@@ -621,6 +623,7 @@ static void ui_input(uint32_t now)
             continue;
         if (on && !ui.keys_down[i]) {
             ui.keys_down[i] = (uint8_t)note;
+            sk_midi_note(1, (uint32_t)note, 100);
             if (ui.page == PG_SEQ && !gs.srun) {                    /* stopped, on the sequencer's page: a key writes the step (key 13 is the root) */
                 int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36), v = 0, wr = 1;
                 if (gs.p[P_CON]) {                                  /* the chords are on: a root key writes its root (the step plays its chord), a chord button writes nothing */
@@ -642,6 +645,7 @@ static void ui_input(uint32_t now)
             } else
                 gs_key((uint32_t)note, 1);
         } else if (!on && ui.keys_down[i]) {
+            sk_midi_note(0, ui.keys_down[i], 0);
             if (ui.kchord[i]) {
                 ui.kchord[i] = 0;
                 cd_key((int)i, 0);

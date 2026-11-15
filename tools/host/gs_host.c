@@ -48,6 +48,11 @@ static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
     fclose(f);
     return got == n ? 0 : -1;
 }
+static void sk_midi_note(int on, uint32_t note, uint32_t vel)      /* (GS_MIDI_LOG set: the notes the host would be sent) */
+{
+    if (getenv("GS_MIDI_LOG"))
+        fprintf(stderr, "midi %s %u %u\n", on ? "on" : "off", (unsigned)note, (unsigned)vel);
+}
 static int sk_store_write(uint32_t sec, const void *src, uint32_t n)
 {
     FILE *f = store_open(sec, "wb");
