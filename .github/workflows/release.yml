@@ -106,6 +106,8 @@ jobs:
           set -euo pipefail
           cc -O2 -Ifirmware/src tools/host/gs_clock_test.c -o /tmp/gsck -lm
           /tmp/gsck
+          cc -O2 -Ifirmware/src tools/host/gs_usbaudio_test.c -o /tmp/gsua -lm
+          /tmp/gsua
 
       - name: Build (./build.sh --release)
         run: |

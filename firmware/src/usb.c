@@ -166,14 +166,19 @@ static void fm1_usb_midi_note(int on, uint32_t note, uint32_t velocity)
  * device is 0.18's byte for byte, 3.22 with the one-rate format and the endpoint's 640 bytes (DEV_DESC44, and
  * ua_cfg_build writes the configuration that way); with it 3.23 and the two-rate descriptors below. Two versions, so
  * a host that cached one reads the other when the option changes */
+/* GartStringer (1.3): MIDI and a stereo 48 kHz recording, bcdDevice 3.30 (1.2.1 and before were MIDI alone, 3.00; the
+ * 3.2x numbers above were another firmware's layouts on this id). With the recording left out (ua_off UA_OFF_IN: SAFE
+ * MODE, or REC held at power-on) the device is 1.2.1's byte for byte: DEV_PLAIN and the MIDI function with no IAD. */
 #include "usb_audio_stream.c"
-#define CFG_LEN 211
+#define CFG_LEN 208
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
-                                     FELUCCA_USB_PID >> 8, 0x23, 0x03, 1, 2, 0, 1};   /* misc/IAD, 3.23 */
+                                     FELUCCA_USB_PID >> 8, 0x30, 0x03, 1, 2, 0, 1};   /* misc/IAD, 3.30 */
+static const uint8_t DEV_PLAIN[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
+                                      FELUCCA_USB_PID >> 8, 0x00, 0x03, 1, 2, 0, 1};  /* MIDI alone, 3.00 */
 static const uint8_t DEV_DESC44[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
                                        FELUCCA_USB_PID >> 8, 0x22, 0x03, 1, 2, 0, 1};  /* 3.22: 44.1 kHz only (0.18's) */
 static const uint8_t CFG_DESC[] = {
-    9, 2, CFG_LEN & 0xFF, CFG_LEN >> 8, 4, 1, 0, 0x80, 50,   /* 211 bytes, four interfaces */
+    9, 2, CFG_LEN & 0xFF, CFG_LEN >> 8, 4, 1, 0, 0x80, 50,   /* 208 bytes, four interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
     9, 4, 0, 0, 0, 1, 1, 0, 0,
     9, 0x24, 1, 0x00, 0x01, 9, 0, 1, 1,
@@ -193,6 +198,7 @@ typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
 static uint8_t ua_cfg[sizeof CFG_DESC];                 /* the configuration as sent (usb_audio.c ua_cfg_build) */
 static uint16_t ua_cfg_len;
 static uint8_t ua_dev44;                                /* the device descriptor as sent: 1 = DEV_DESC44 (ua_cfg_build) */
+static uint8_t ua_plain;                                /* ... 1 = DEV_PLAIN: the recording is left out (ua_cfg_build) */
 #if FELUCCA_CDC
 #define CFG_LEN_CDC 175
 static const uint8_t DEV_DESC_CDC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
@@ -320,8 +326,7 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
 /* the device's strings: 1 the maker, 2 the product (the MIDI port's name: tools/fm1_install.py and web/fm1ota.js
  * match "FM-1"; 16 characters at most: usb_str), 3 the recording device, 4..9 its channel names
  * (usb_audio_desc.h). Built from ASCII into usb_str on request (one control transfer at a time) */
-static const char *const USB_STRS[] = {0, "GartStringer", "GartStringer FM-1", "GartStringer In",
-                                       "Master L", "Master R", "Chord L", "Chord R", "Bass L", "Bass R"};
+static const char *const USB_STRS[] = {0, "GartStringer", "GartStringer FM-1", "GartStringer In"};
 #define USB_NSTR (FELUCCA_UAC ? sizeof USB_STRS / sizeof USB_STRS[0] : 3u)
 static uint8_t usb_str[2 + 2 * 16];
 
@@ -338,6 +343,11 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
         }
 #endif
 #if FELUCCA_UAC
+        if (ua_plain) {                                 /* the recording left out: the MIDI device as it was */
+            *d = DEV_PLAIN;
+            *l = sizeof DEV_PLAIN;
+            return 1;
+        }
         if (ua_dev44) {                                 /* Options > USB Rate 44.1 kHz: 0.18's device, 3.22 */
             *d = DEV_DESC44;
             *l = sizeof DEV_DESC44;

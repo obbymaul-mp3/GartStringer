@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * ChoralRoot changes (the PCM16-only capture, SAFE MODE, the console's presentation, the playback function removed;
  * 0.19: the second rate, 48 kHz, chosen by the host's SET_CUR as in SLOOP 2.5 / Felucca 1.1.5)
- * Copyright (C) 2026 ChoralRoot FM-1 contributors */
+ * Copyright (C) 2026 ChoralRoot FM-1 contributors
+ * GartStringer changes (one rate; with the recording left out the configuration is the MIDI function alone, no IAD) */
 /* Melodee's usb_audio.c (Melodee 0.11.1). USB0 full-speed isochronous service, included by usb.c after the SIE
  * helpers.
  * The AC79 usb_phy.h defines bit 14 as ISOCHRONOUS in TX/RX CSR. As in the
@@ -86,6 +87,7 @@ static void ua_cfg_build(void)
     uint32_t i, k, n = 0, nif = 0, skip = 0;
     ua_if_cap = UA_NO_IF;
     ua_dev44 = (uint8_t)((ua_off & UA_OFF_48) != 0);
+    ua_plain = (uint8_t)((ua_off & UA_OFF_IN) != 0);
 #if FELUCCA_CDC
     if (usb_cdc_on) {                           /* the console's configuration (CFG_DESC_CDC): MIDI and CDC */
         ua_nif = 4;
@@ -94,8 +96,11 @@ static void ua_cfg_build(void)
 #endif
     for (i = 0; i < sizeof CFG_DESC; i += CFG_DESC[i]) {
         const uint8_t *d = CFG_DESC + i;
-        if (d[1] == 0x0Bu)                      /* IAD: a function starts */
+        if (d[1] == 0x0Bu) {                    /* IAD: a function starts */
             skip = (ua_off & UA_OFF_IN) && d[2] + 1u == UA_IF_CAP;
+            if (ua_off & UA_OFF_IN)
+                continue;                       /* (GartStringer: MIDI alone has no IAD, as before the recording) */
+        }
         if (skip)
             continue;
         if ((ua_off & UA_OFF_48) && ua_if_cap == UA_IF_CAP && d[1] == 0x24u && d[2] == 2u) {
@@ -277,7 +282,7 @@ static int ua_control_get(const uint8_t *s, uint32_t *rate)   /* a GET of it: it
         return 0;
     switch (s[1]) {
     case 0x81: *rate = ua.r48 ? UA_RATE48 : UA_RATE; break;   /* GET_CUR */
-    case 0x82: *rate = UA_RATE; break;         /* GET_MIN */
+    case 0x82: *rate = UA_ONLY48 ? UA_RATE48 : UA_RATE; break;   /* GET_MIN */
     case 0x83: *rate = (ua_off & UA_OFF_48) ? UA_RATE : UA_RATE48; break;   /* GET_MAX (one rate: 0.18's answer) */
     case 0x84: *rate = 0; break;               /* GET_RES: discrete frequencies */
     default: return 0;

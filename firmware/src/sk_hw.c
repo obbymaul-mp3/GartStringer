@@ -47,6 +47,10 @@ void fm1_timer5_irq(void)
         owed = 1;                                      /* 2 kHz: all USB SIE traffic lives here (usb.c) */
     if (++sub == 10u)
         sub = 0;
+    if (sub & 1u)
+        ua_service();                                  /* the recording's endpoint, 5 kHz, nested in a render too: a packet has
+                                                        * to be ready every millisecond (it touches the SIE only while a host
+                                                        * records; nothing else does outside this interrupt) */
     if (sk_in_audio || !owed)
         return;                                        /* nested in a render: the next tick polls (owed stays) */
     owed = 0;
@@ -113,6 +117,24 @@ static void sk_rate_tick(uint32_t t0)
     n = 0;
 }
 
+/* A block of the output (stereo, Q15, before the DAC's shift) to the USB recording: 44.1 kHz resampled to the stream's 48 kHz here,
+ * interrupts on; the copy into the stream's ring with them off (TIMER5 takes packets from it). Nothing happens unless a host records. */
+static void sk_usb_audio(const int32_t *q)
+{
+    int16_t st[2u * SK_CTL];
+    uint32_t i, n, f;
+    if (!ua.cap_alt)
+        return;
+    for (i = 0; i < 2u * SK_CTL; i++)
+        st[i] = (int16_t)(q[i] > 32767 ? 32767 : q[i] < -32768 ? -32768 : q[i]);
+    n = ua_block48(st, SK_CTL);
+    if (!n)
+        return;
+    f = irq_save();
+    ua_feed(ua.rs_out, n, 1);
+    irq_restore(f);
+}
+
 void fm1_alnk0_irq(void)
 {
     uint8_t p = fm1_audio_pending();
@@ -130,6 +152,7 @@ void fm1_alnk0_irq(void)
         for (b = 0; b < HALF_FRAMES; b += SK_CTL) {
             int32_t *q = o + 2u * b;
             sk_render(q, SK_CTL);
+            sk_usb_audio(q);
             for (i = 0; i < 2u * SK_CTL; i++)
                 q[i] *= 1 << OUT_SHIFT;
         }
@@ -425,6 +448,8 @@ static void sk_main(void)
     }
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);
     CR_STAGE_SET(BS_IRQ);
+    if (sk_safe)
+        ua_off = ua_off_want = UA_OFF_IN;  /* SAFE MODE: MIDI alone, as before the recording */
     usb_start();                           /* the USB-MIDI interface, polled from TIMER5 (the installer page finds the unit through it) */
     uart_midi_init();                      /* the MIDI IN jack (before TIMER5 starts: it shares a port with the panel's scan) */
     fm1_timer5_start(isr_timer5, 4);
@@ -452,6 +477,18 @@ static void sk_main(void)
         CR_STAGE_SET(BS_LOOP_INPUT);
         ui_input(m);
         left = sk_update_poll(ui.held);
+        {                                               /* REC held at power-on: the USB recording is left out (MIDI alone, as 1.2.1
+                                                         * was: the way back in if a host cannot take the audio device) */
+            static uint8_t chk;
+            if (!chk && fm1_ms > 400u) {
+                chk = 1;
+                if (((ui.held >> SB_REC) & 1u) && !(ua_off & UA_OFF_IN)) {
+                    ua_off = ua_off_want = UA_OFF_IN;
+                    usb_replug(fm1_ms);
+                    ui_toast("USB AUDIO OFF", fm1_ms);
+                }
+            }
+        }
         usb_retry(fm1_ms);
         ota_service();                                  /* the installer page's handshake */
         if (usb.ota_req) {                              /* its upgrade command: pull the package, stage the loader, restart */

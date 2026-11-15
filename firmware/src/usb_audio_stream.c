@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * ChoralRoot changes (six capture channels, the capture ring's size, 16-bit capture, the playback removed; 0.19:
  * 48 kHz for six channels, after SLOOP 2.5's and Felucca 1.1.5's stereo resampler)
- * Copyright (C) 2026 ChoralRoot FM-1 contributors */
+ * Copyright (C) 2026 ChoralRoot FM-1 contributors
+ * GartStringer changes (UA_CAP_CHANNELS 2: a stereo stream, its packet sizes and a two-channel filter; UA_ONLY48: 48 kHz
+ * is the only rate) */
 /* UAC1 six-channel capture ("ChoralRoot In"): Melodee's usb_audio_stream.c (Melodee 0.11.1) without its playback
  * (the computer's audio through the FM-1: removed in 0.14, docs/USB-AUDIO.md). No hardware dependencies: callers
  * serialize USB service and each short audio block (the host test tests/cr_usbaudio_test.c builds this file alone).
@@ -51,7 +53,14 @@
  * zeros never; docs/USB-AUDIO.md). 640 covered the worst case at 44.1 kHz (540 x 7 / 6 = 630). 0.19: the one
  * endpoint serves both rates and a 48 kHz packet is up to 49 frames, 588 bytes: 588 x 7 / 6 = 686, so 688; the
  * full-speed maximum is 1023 */
+#if UA_CAP_CHANNELS == 2u
+#define UA_EP_MAXP 232u                         /* stereo: 49 frames x 4 = 196 bytes, x 7 / 6 = 229 */
+#else
 #define UA_EP_MAXP 688u
+#endif
+#ifndef UA_ONLY48
+#define UA_ONLY48 0                             /* 1: one rate, 48 kHz (ua.r48 is always 1; SET_CUR changes nothing) */
+#endif
 #define UA_EP_MAXP44 640u                       /* with 48 kHz not offered (usb_audio.c UA_OFF_48): 0.18's, 45 frames */
 _Static_assert(UA_EP_MAXP >= UA_PACKET * 7u / 6u && UA_EP_MAXP <= 1023u,
                "wMaxPacketSize: the largest packet, bit-stuffed .. 1023");
@@ -106,7 +115,7 @@ static void ua_cap_reset(void)
 static void ua_reset(void)
 {
     ua.cap_alt = 0;
-    ua.r48 = 0;                                 /* (a bus reset, a new configuration, usb_start: 44.1 kHz again) */
+    ua.r48 = UA_ONLY48;                         /* (a bus reset, a new configuration, usb_start: 44.1 kHz again) */
     ua.rs_on = 0;
     ua_cap_reset();
 }
@@ -117,7 +126,7 @@ static void ua_reset(void)
  * again leaves a running stream alone */
 static int ua_rate_set(uint32_t hz)
 {
-    uint8_t r48 = (uint8_t)(hz >= (UA_RATE + UA_RATE48) / 2u);
+    uint8_t r48 = (uint8_t)(UA_ONLY48 || hz >= (UA_RATE + UA_RATE48) / 2u);
     ua.rate_sets++;
     if (r48 == ua.r48)
         return 0;
@@ -260,6 +269,7 @@ static inline __attribute__((always_inline)) void ua_fir3(const int16_t *w, cons
     o[1] = ua_rs_sat((int32_t)(a1 >> UAC_FIR_Q));
     o[2] = ua_rs_sat((int32_t)(a2 >> UAC_FIR_Q));
 }
+#if UA_CAP_CHANNELS == 6u
 _Static_assert(UAC_FIR_N == 12u && UA_CAP_CHANNELS == 6u, "ua_fir3 is written out for 12 taps, twice three channels");
 
 /* one output frame of six channels from the window w with the taps c[0..11] (a phase of the table) or c[0], c[-1],
@@ -278,16 +288,32 @@ static __attribute__((noinline)) void ua_fir6_bwd(const int16_t *w, const int16_
     ua_fir3(w + 3, c, -1, o + 3);
 }
 
+#else
+/* stereo: one output frame of two channels, the taps read forwards (step 1) or backwards (-1) as above */
+_Static_assert(UAC_FIR_N == 12u && UA_CAP_CHANNELS == 2u, "ua_fir2 is written out for 12 taps, two channels");
+#define UA_TAP2(j) do { \
+        int32_t t = c[(int32_t)(j) * step]; \
+        a0 += (int64_t)t * w[(j) * 2u]; \
+        a1 += (int64_t)t * w[(j) * 2u + 1u]; \
+    } while (0)
+static inline __attribute__((always_inline)) void ua_fir2(const int16_t *w, const int16_t *c, int32_t step, int16_t *o)
+{
+    int64_t a0, a1;
+    a0 = a1 = 1 << (UAC_FIR_Q - 1);
+    UA_TAP2(0); UA_TAP2(1); UA_TAP2(2); UA_TAP2(3); UA_TAP2(4); UA_TAP2(5);
+    UA_TAP2(6); UA_TAP2(7); UA_TAP2(8); UA_TAP2(9); UA_TAP2(10); UA_TAP2(11);
+    o[0] = ua_rs_sat((int32_t)(a0 >> UAC_FIR_Q));
+    o[1] = ua_rs_sat((int32_t)(a1 >> UAC_FIR_Q));
+}
+static __attribute__((noinline)) void ua_fir6_fwd(const int16_t *w, const int16_t *c, int16_t *o) { ua_fir2(w, c, 1, o); }
+static __attribute__((noinline)) void ua_fir6_bwd(const int16_t *w, const int16_t *c, int16_t *o) { ua_fir2(w, c, -1, o); }
+#endif
+
 static inline void ua_rs_copy(int16_t *d, const int16_t *s, uint32_t frames)   /* (d below s if they overlap) */
 {
-    for (; frames; frames--, d += UA_CAP_CHANNELS, s += UA_CAP_CHANNELS) {
-        d[0] = s[0];
-        d[1] = s[1];
-        d[2] = s[2];
-        d[3] = s[3];
-        d[4] = s[4];
-        d[5] = s[5];
-    }
+    uint32_t i;
+    for (i = 0; i < frames * UA_CAP_CHANNELS; i++)
+        d[i] = s[i];
 }
 
 /* 44.1 -> 48 kHz (x 160 / 147), one block of n <= UA_RS_BLOCK frames of six channels into ua.rs_out; returns the

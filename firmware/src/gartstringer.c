@@ -17,6 +17,9 @@
 #define SK_VERSION "GARTSTRINGER"
 #endif
 #define SK_POOL __attribute__((section(".pool")))
+#define FELUCCA_UAC 1                    /* usb.c: the unit is also a USB audio input (its own output, for a phone or a computer to record) */
+#define UA_CAP_CHANNELS 2u               /* usb_audio_stream.c: stereo */
+#define UA_ONLY48 1                      /* ... at 48 kHz and nothing else (the synth's 44.1 kHz is resampled) */
 #define FELUCCA_OTA 1                    /* usb.c / ota.c: the installer page can update the unit from the running instrument */
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* a ring slot is stored before its index moves */
 
