@@ -19,8 +19,8 @@
 #define SK_CTL 32                        /* samples a block */
 #define SK_FS 44100
 #define GS_NV 6                          /* voices */
-#define GS_NPRE 112                      /* factory patches: 40 trance, 24 each of house, techno and garage (gs_presets.h has the order) */
-#define GS_NWORLD 4
+#define GS_NPRE 160                      /* factory patches: 40 trance, 24 each of house, techno, garage, ambient and bass (gs_presets.h has the order) */
+#define GS_NWORLD 6
 #define GS_NS 128                        /* the longest pattern: 128 steps */
 #define GS_NP 8                          /* patterns A..H */
 
@@ -36,7 +36,9 @@ enum {
     P_APAT, P_ARATE, P_ARNG, P_AGATE, P_AON,                /* arpeggio: pattern, rate, octaves, gate length, on */
     P_GLP, P_GLL, P_GLT, P_CRU,                             /* glitch: chance, length, kind, crush */
     P_SRATE, P_SMET, P_SSWG, P_SGATE, P_TAPE,               /* sequencer: rate, metronome (off, soft, mid, loud), swing, gate length; and the tape (wow, flutter, a darker top) */
-    P_CON, P_CKEY, P_CSCL, P_CLAY, P_CVOI,                  /* chords: on, key, scale, layout (top, top lock, side, side lock), voicing */
+    P_CON, P_CKEY, P_CSCL, P_CLAY, P_CVOI,                  /* (P_CON: 0 off, 1 chords, 2 the keys kept to the scale) */
+    P_DRIFT,                                                /* drift: every voice's pitch, and the filter, wander slowly (2.1; P_N55 params before it) */
+                     /* chords: on, key, scale, layout (top, top lock, side, side lock), voicing */
     P_N
 };
 #define GS_NMODE 11
@@ -64,7 +66,10 @@ static const char *const GS_GT_STR[GS_NPAT] = {
 static const char *const GS_GT_NAME[GS_NPAT] = {"OFFBEAT", "BOUNCE", "ROLLING", "TRANCE A", "TRANCE B", "3-3-2", "STUTTER", "DOUBLE", "SYNCOPE", "SKIP", "SPARSE", "HAUNT", "RANDOM", "OPEN", "PUMP 1/4", "PUMP 1/8"};
 
 /* the voice mode as played: the chord instrument needs every voice, so it plays polyphonic whatever the patch says */
-#define GS_VM() ((uint32_t)(gs.p[P_CON] ? 0u : gs.p[P_VMODE]))
+#define GS_CHORDS() (gs.p[P_CON] == 1u)                    /* one key plays a chord */
+#define GS_SLOCK() (gs.p[P_CON] == 2u)                     /* every key is moved onto the scale */
+#define P_N55 55u                                          /* how many parameters 1.2 to 2.0 had (their saves) */
+#define GS_VM() ((uint32_t)(GS_CHORDS() ? 0u : gs.p[P_VMODE]))
 
 static const uint8_t GS_DEF[P_N] = {
     0, 54, 64, 20, 60, 2,   60, 40, 70, 30, 0, 12,
@@ -75,6 +80,7 @@ static const uint8_t GS_DEF[P_N] = {
     0, 0, 0, 0,
     1, 0, 0, 70, 0,
     0, 0, 1, 1, 0,
+    0,
 };
 
 /* ------------------------------------------------------------------ helpers --- */
@@ -151,6 +157,10 @@ static struct {
     uint8_t mac, mkind, djf;             /* the performance macro: how far (0..127), which (GS_MAC_NAME); the DJ filter (64: out; under: low-pass closing; over: high-pass rising) */
     uint32_t wow_ph, flu_ph;             /* the tape: its slow wow and quick flutter */
     int32_t tape_pq;                     /* .. the pitch they add now, Q8 semitones */
+    int32_t dr[GS_NV + 1], dr_t[GS_NV + 1];   /* drift: where each voice (and, last, the filter) has wandered to, and is heading: +-65536 */
+    uint8_t mot_id[GS_NP];               /* a recorded knob, one a pattern: the parameter + 1 (0: none) */
+    uint8_t mot[GS_NP][GS_NS];           /* .. its value + 1 at each step (0: nothing recorded there) */
+    uint8_t mot_hold;                    /* a hand is on that knob now: the recording does not play over it */
     uint32_t met_ph, met_inc;            /* the metronome's click: phase, step */
     int32_t met_env;                     /* its envelope, Q15 */
 } gs;
@@ -426,6 +436,16 @@ static void gs_lfo_step(void)
     gs.flu_ph += 19000000u;                                        /* 6.1 Hz */
     gs.tape_pq = gs.p[P_TAPE] ? (int32_t)((SK_SIN[(gs.wow_ph >> 22) & 1023u] * ((int32_t)gs.p[P_TAPE] * 90 / 127) +
                                            SK_SIN[(gs.flu_ph >> 22) & 1023u] * ((int32_t)gs.p[P_TAPE] * 12 / 127)) >> 15) : 0;
+    /* drift: each voice, and the filter, heads for a point picked at random and for a new one every second or two, slowly: no
+     * two voices move together and nothing repeats */
+    if (gs.p[P_DRIFT]) {
+        uint32_t i;
+        for (i = 0; i <= GS_NV; i++) {
+            if ((sk_rand() & 2047u) == 0u)
+                gs.dr_t[i] = (int32_t)(sk_rand() & 0x1FFFFu) - 65536;
+            gs.dr[i] += (gs.dr_t[i] - gs.dr[i]) >> 10;
+        }
+    }
 }
 
 static inline int32_t gs_pitch_inc(int32_t pq8, uint32_t *inc, uint32_t *base)
@@ -482,7 +502,8 @@ static void gs_voices(int32_t *mix, uint32_t n)
             v->pitch = tgt;
         if (dst == 0u)
             vib = (lfo * amt) >> 13;
-        gs_pitch_inc(v->pitch + vib + gs.tape_pq + ((int32_t)p[P_OCT] - 2) * 12 * 256, &inc, &base);
+        gs_pitch_inc(v->pitch + vib + gs.tape_pq + (p[P_DRIFT] ? (gs.dr[v - gs.v] * (int32_t)p[P_DRIFT]) >> 16 : 0) +      /* (drift: up to half a semitone either way) */
+                     ((int32_t)p[P_OCT] - 2) * 12 * 256, &inc, &base);
         /* colour, detune */
         col = p[P_COL];
         det = p[P_DET];
@@ -499,6 +520,8 @@ static void gs_voices(int32_t *mix, uint32_t n)
         cutq += (int32_t)(((int64_t)(v->pitch - 15360) * p[P_KEY] * 142) >> 14);
         if (dst == 1u)
             cutq += (lfo * amt) >> 9;
+        if (p[P_DRIFT])
+            cutq += (gs.dr[GS_NV] * (int32_t)p[P_DRIFT]) >> 12;      /* (drift: the filter wanders too) */
         if (gs.mkind == 0u)
             cutq += (int32_t)gs.mac * 80;                         /* the macro's BUILD opens the filter */
         cutq = sk_clampi(cutq, 0, 127 * 256 - 1);
@@ -950,6 +973,7 @@ static void gs_pat_select(uint32_t p)
 #define GS_NMAC 4
 static const char *const GS_MAC_NAME[GS_NMAC] = {"BUILD", "WASH", "DARK", "CRUSH"};
 static void gs_mode_changed(void);
+static void gs_set(uint32_t idx, int v);
 
 /* the sequence moves to a pattern: the one left takes its sound back if it has its own, and the one entered brings its own if it has */
 static void gs_pat_enter(uint32_t p)
@@ -997,6 +1021,8 @@ static void gs_seq_step(void)
     }
     gs.sstep = (uint8_t)s;
     f = gs.sp[gs.pcur][s];
+    if (gs.mot_id[gs.pcur] && gs.mot[gs.pcur][s] && !gs.mot_hold)     /* a recorded knob: the step sets it */
+        gs_set((uint32_t)gs.mot_id[gs.pcur] - 1u, (int)gs.mot[gs.pcur][s] - 1);
     {                                                              /* (the clock is the caller's: what ran over the last step counts toward this one) */
         uint32_t cur = gs_seq_len();
         gs.soff = (uint32_t)(((uint64_t)cur * (uint32_t)(8 + gs.p[P_SGATE])) >> 7);
@@ -1025,7 +1051,7 @@ static void gs_seq_step(void)
         uint8_t nn[6], was[6], nwas = gs.schn;
         note = note < 0 ? 0 : note > 120 ? 120 : note;
         nn[0] = (uint8_t)note;
-        if (gs.p[P_CON] && gs_seq_chord)                           /* the chords are on: the step's note is a root, and its chord plays */
+        if (GS_CHORDS() && gs_seq_chord)                           /* the chords are on: the step's note is a root, and its chord plays */
             n = gs_seq_chord(note, nn);
         if (n < 1 || n > 6)
             n = 1;

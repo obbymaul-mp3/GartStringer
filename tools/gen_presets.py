@@ -7,8 +7,8 @@ import sys
 ORDER = ["MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV",
          "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE",
          "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE",
-         "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI"]
-BASE = dict(MODE=0, DET=54, MIX=64, SUB=0, COL=60, OCT=2, CUT=80, RES=30, FENV=40, KEY=30, FTYPE=0, DRV=10,
+         "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI", "DRIFT"]
+BASE = dict(DRIFT=0, MODE=0, DET=54, MIX=64, SUB=0, COL=60, OCT=2, CUT=80, RES=30, FENV=40, KEY=30, FTYPE=0, DRV=10,
             AA=4, AD=60, AS=100, AR=50, FA=6, FD=60, FS=40, FR=50, LRATE=40, LAMT=0, LDST=0, LSHP=0, GLIDE=0, VMODE=0,
             CHOR=60, DLY=30, DTIM=2, DFB=50, REV=40, RSZ=70, GPAT=13, GRATE=1, GDEP=0, GSMO=40,
             APAT=0, ARATE=2, ARNG=1, AGATE=90, AON=0, GLP=0, GLL=0, GLT=0, CRU=0,
@@ -152,6 +152,65 @@ NEW = [
  (3, "Stretch Vox", 134, dict(MODE=3, DET=24, MIX=50, COL=56, OCT=3, CUT=56, RES=90, FTYPE=4, FENV=60, AA=0, AD=50, AS=80, AR=30, FA=0, FD=60, FS=20, VMODE=2, GLIDE=30, GLP=70, GLL=1, GLT=0, CHOR=50, DLY=40, DTIM=5, DFB=50, REV=50, RSZ=76, DRV=90, SSWG=74)),
  (3, "Soul Organ", 130, dict(MODE=6, DET=30, MIX=40, COL=50, CUT=100, RES=10, FENV=10, AA=2, AD=70, AS=104, AR=40, FA=0, FD=40, FS=0, LRATE=64, LAMT=12, LDST=2, CHOR=104, DLY=20, DTIM=5, REV=50, RSZ=76, TAPE=20, CON=1, CSCL=4, CVOI=5, SSWG=72)),
 ]
+# 2.1: two more worlds, 24 patches each, added after everything before them (a saved slot's patch number keeps its meaning).
+PAD = dict(AA=70, AD=90, AS=112, AR=104, FA=60, FD=90, FS=70, FR=100, REV=110, RSZ=118, CHOR=96, DLY=40, DTIM=3, DFB=56)
+def pad(**k):
+    d = dict(PAD); d.update(k); return d
+BASS = dict(OCT=1, VMODE=2, GLIDE=14, AA=0, AR=20, CHOR=0, DLY=0, REV=6, RSZ=24, SGATE=80)
+def bass(**k):
+    d = dict(BASS); d.update(k); return d
+NEW2 = [
+ # ---- ambient: slow, wide, drifting
+ (4, "Slow Dawn", 84, pad(MODE=2, DET=44, MIX=64, COL=40, CUT=60, RES=18, FTYPE=1, FENV=30, LRATE=10, LAMT=40, LDST=3, TAPE=40, DRIFT=70, CON=1, CSCL=0, CVOI=5)),
+ (4, "Glass Halo", 76, pad(MODE=5, DET=30, MIX=104, COL=44, CUT=112, RES=8, FENV=6, AA=30, AD=100, AS=60, AR=110, DLY=70, DFB=66, DRIFT=50)),
+ (4, "Deep Drone", 70, pad(MODE=10, DET=40, MIX=60, SUB=60, OCT=1, CUT=40, RES=30, FTYPE=1, FENV=10, AA=90, AR=116, LRATE=6, LAMT=60, LDST=1, CHOR=70, DRIFT=90, DRV=24)),
+ (4, "Tape Choir", 80, pad(MODE=0, DET=50, MIX=70, CUT=66, RES=60, FTYPE=4, FENV=20, LRATE=8, LAMT=44, LDST=1, TAPE=70, DRIFT=60, CON=1, CSCL=1, CVOI=1)),
+ (4, "Still Water", 72, pad(MODE=5, DET=14, MIX=24, COL=30, CUT=96, RES=10, FENV=12, AA=2, AD=96, AS=40, AR=100, DLY=84, DTIM=5, DFB=70, TAPE=30, DRIFT=40)),
+ (4, "Aurora", 88, pad(MODE=0, DET=70, MIX=90, CUT=58, RES=30, FTYPE=1, FENV=20, LRATE=5, LAMT=70, LDST=1, CHOR=110, DRIFT=60, CON=1, CSCL=4, CVOI=5)),
+ (4, "Dust Organ", 78, pad(MODE=6, DET=30, MIX=44, COL=40, CUT=84, RES=10, FENV=10, AA=40, LRATE=58, LAMT=10, LDST=2, TAPE=90, DRIFT=50, CON=1, CSCL=0, CVOI=5)),
+ (4, "Cloud Keys", 82, pad(MODE=5, DET=20, MIX=40, COL=50, CUT=88, RES=12, FENV=20, AA=6, AD=90, AS=50, AR=96, FA=0, DLY=60, DFB=60, TAPE=44, DRIFT=44, CON=1, CSCL=0, CVOI=4)),
+ (4, "Sine Sea", 70, pad(MODE=4, DET=24, MIX=30, SUB=40, COL=20, CUT=70, RES=10, FENV=10, AA=96, AR=120, LRATE=4, LAMT=50, LDST=2, DRIFT=100)),
+ (4, "Metal Rain", 90, pad(MODE=8, DET=20, MIX=100, COL=96, CUT=112, RES=10, FENV=10, AA=0, AD=50, AS=0, AR=70, FA=0, FD=40, FS=0, DLY=90, DTIM=5, DFB=76, AON=1, APAT=3, ARATE=1, ARNG=3, AGATE=40, DRIFT=30)),
+ (4, "Night Wind", 70, pad(MODE=9, MIX=80, COL=60, CUT=56, RES=76, FTYPE=2, FENV=10, AA=100, AR=120, LRATE=6, LAMT=110, LDST=1, LSHP=3, DRIFT=127, DRV=44)),
+ (4, "Far Bell", 74, pad(MODE=5, DET=10, MIX=118, COL=70, CUT=120, RES=6, FENV=0, AA=0, AD=110, AS=0, AR=118, FA=0, DLY=76, DFB=70, DRIFT=30)),
+ (4, "Warm Bed", 80, pad(MODE=0, DET=40, MIX=60, SUB=30, CUT=44, RES=14, FTYPE=1, FENV=16, TAPE=50, DRIFT=64, CON=1, CSCL=1, CVOI=1)),
+ (4, "Shimmer", 86, pad(MODE=1, DET=60, MIX=70, COL=90, OCT=3, CUT=96, RES=20, FENV=10, AA=96, LRATE=14, LAMT=30, LDST=3, CHOR=120, DLY=70, DFB=70, DRIFT=50)),
+ (4, "Sub Tide", 70, pad(MODE=4, DET=6, MIX=10, SUB=120, COL=0, OCT=1, CUT=34, RES=10, FENV=10, AA=80, AR=110, VMODE=1, CHOR=20, REV=60, DRIFT=40)),
+ (4, "Lullaby", 76, pad(MODE=5, DET=12, MIX=60, COL=20, CUT=100, RES=8, FENV=10, AA=0, AD=84, AS=20, AR=90, FA=0, DLY=64, DTIM=5, DFB=60, TAPE=36, DRIFT=30, CON=1, CSCL=0, CVOI=0)),
+ (4, "Frozen", 72, pad(MODE=2, DET=20, MIX=30, COL=84, CUT=80, RES=40, FTYPE=2, FENV=10, AA=110, AR=124, LRATE=3, LAMT=80, LDST=3, DRIFT=80, CRU=10, DRV=40)),
+ (4, "Hollow", 78, pad(MODE=3, DET=40, MIX=50, COL=50, OCT=2, CUT=60, RES=70, FTYPE=2, FENV=20, LRATE=7, LAMT=60, LDST=1, DRIFT=70, DRV=44, CON=1, CSCL=4, CVOI=6)),
+ (4, "Drift Strings", 84, pad(MODE=0, DET=56, MIX=80, CUT=84, RES=14, FENV=20, AA=50, AR=90, FA=40, CHOR=112, DRIFT=96, TAPE=20, CON=1, CSCL=1, CVOI=1)),
+ (4, "Pulse Fog", 92, pad(MODE=2, DET=44, MIX=64, COL=30, CUT=56, RES=24, FTYPE=1, FENV=24, GPAT=14, GRATE=0, GDEP=70, GSMO=110, DRIFT=50, CON=1, CSCL=1, CVOI=5)),
+ (4, "Moth", 96, pad(MODE=2, DET=20, MIX=40, COL=64, CUT=74, RES=30, FTYPE=1, FENV=70, AA=0, AD=46, AS=0, AR=60, FA=0, FD=44, FS=0, DLY=96, DTIM=5, DFB=80, AON=1, APAT=4, ARATE=1, ARNG=2, AGATE=40, DRIFT=40)),
+ (4, "Cathedral", 70, pad(MODE=6, DET=20, MIX=90, COL=90, CUT=96, RES=8, FENV=10, AA=30, AR=110, REV=127, RSZ=127, DRIFT=30, CON=1, CSCL=1, CVOI=3)),
+ (4, "Low Sun", 74, pad(MODE=0, DET=90, MIX=100, SUB=20, CUT=50, RES=20, FTYPE=1, FENV=20, TAPE=110, DRIFT=80, LRATE=4, LAMT=40, LDST=1)),
+ (4, "Ghost Tones", 80, pad(MODE=4, DET=40, MIX=70, COL=70, CUT=72, RES=80, FTYPE=4, FENV=20, AA=90, LRATE=5, LAMT=90, LDST=1, LSHP=1, DRIFT=127, DLY=70, DFB=70)),
+ # ---- bass: loud, distorted, sliding
+ (5, "Dirt 808", 150, bass(MODE=4, DET=0, MIX=20, SUB=120, COL=10, CUT=50, RES=14, FENV=40, AD=96, AS=40, AR=40, FA=0, FD=40, FS=0, GLIDE=40, DRV=96)),
+ (5, "Victim", 160, bass(MODE=0, DET=30, MIX=60, SUB=60, CUT=56, RES=70, FTYPE=5, FENV=80, AD=50, AS=70, FA=0, FD=40, FS=10, DRV=110, CRU=24)),
+ (5, "Donk Smash", 150, bass(MODE=7, DET=10, MIX=90, COL=70, OCT=2, CUT=90, RES=20, FENV=30, AD=40, AS=0, AR=24, VMODE=1, DRV=100, SGATE=50)),
+ (5, "Hyper Reese", 160, bass(MODE=10, DET=90, MIX=90, SUB=50, CUT=60, RES=40, FTYPE=1, FENV=40, AD=60, AS=100, CHOR=60, DRV=56, DRIFT=30)),
+ (5, "Blown Sub", 140, bass(MODE=4, DET=0, MIX=0, SUB=127, COL=0, CUT=40, RES=10, FENV=20, AD=80, AS=90, AR=30, GLIDE=30, DRV=127, CRU=30)),
+ (5, "Growler", 150, bass(MODE=10, DET=70, MIX=80, SUB=40, CUT=46, RES=84, FTYPE=4, FENV=60, AD=60, LRATE=80, LAMT=70, LDST=1, LSHP=1, DRV=110, AS=110)),
+ (5, "Wobble", 140, bass(MODE=0, DET=20, MIX=40, SUB=70, CUT=40, RES=60, FTYPE=1, FENV=10, AD=60, AS=110, LRATE=76, LAMT=110, LDST=1, DRV=70)),
+ (5, "Screech Bass", 165, bass(MODE=1, DET=50, MIX=60, COL=110, SUB=40, CUT=70, RES=90, FTYPE=2, FENV=50, AD=50, AS=90, LRATE=84, LAMT=40, LDST=3, LSHP=1, DRV=110)),
+ (5, "FM Punch", 155, bass(MODE=5, DET=4, MIX=110, COL=30, CUT=84, RES=20, FTYPE=1, FENV=70, AD=40, AS=20, FA=0, FD=30, FS=0, VMODE=1, DRV=70, SGATE=50)),
+ (5, "Rubber", 145, bass(MODE=3, DET=10, MIX=30, SUB=50, COL=40, CUT=56, RES=50, FTYPE=1, FENV=70, AD=44, AS=40, FA=0, FD=40, FS=0, GLIDE=36, DRV=50)),
+ (5, "Crushed Sine", 160, bass(MODE=4, DET=0, MIX=10, SUB=110, COL=10, CUT=70, RES=10, FENV=10, AD=70, AS=90, GLIDE=24, DRV=60, CRU=70)),
+ (5, "Laser Bass", 170, bass(MODE=3, DET=0, MIX=10, COL=20, CUT=40, RES=116, FTYPE=5, FENV=120, AD=36, AS=20, FA=0, FD=26, FS=0, VMODE=1, DRV=90, SGATE=50)),
+ (5, "Metal Sub", 150, bass(MODE=8, DET=30, MIX=50, COL=40, SUB=110, CUT=64, RES=30, FTYPE=1, FENV=40, AD=50, AS=60, DRV=84)),
+ (5, "Square Push", 150, bass(MODE=2, DET=4, MIX=0, COL=64, SUB=60, CUT=70, RES=30, FENV=30, AD=50, AS=100, GLIDE=20, DRV=70)),
+ (5, "Hoover Low", 160, bass(MODE=0, DET=112, MIX=110, SUB=40, CUT=76, RES=30, FENV=30, AA=2, AD=60, AS=100, GLIDE=44, CHOR=80, DRV=80, REV=20)),
+ (5, "Pump Bass", 150, bass(MODE=0, DET=40, MIX=70, SUB=80, CUT=56, RES=30, FTYPE=1, FENV=20, AA=1, AD=60, AS=112, AR=30, GPAT=14, GRATE=1, GDEP=120, GSMO=60, DRV=70)),
+ (5, "Bit Donk", 165, bass(MODE=7, DET=20, MIX=110, COL=100, OCT=2, CUT=100, RES=30, FENV=20, AD=36, AS=0, AR=20, VMODE=1, DRV=80, CRU=60, SGATE=50)),
+ (5, "Noise Bass", 150, bass(MODE=9, MIX=60, COL=30, SUB=110, CUT=50, RES=70, FTYPE=2, FENV=60, AD=44, AS=50, FA=0, FD=40, FS=10, DRV=90)),
+ (5, "Acid Smash", 155, bass(MODE=0, DET=0, MIX=0, SUB=30, CUT=44, RES=112, FTYPE=5, FENV=90, KEY=30, AD=40, AS=30, FA=0, FD=36, FS=0, GLIDE=20, DRV=120)),
+ (5, "Sub Glide", 140, bass(MODE=4, DET=0, MIX=0, SUB=127, COL=0, CUT=36, RES=10, FENV=10, AA=1, AD=70, AS=112, AR=40, GLIDE=70, DRV=30)),
+ (5, "Fuzz Organ", 150, bass(MODE=6, DET=20, MIX=30, COL=20, CUT=80, RES=14, FENV=20, AD=40, AS=40, VMODE=1, DRV=110, SGATE=60)),
+ (5, "Tear Out", 170, bass(MODE=10, DET=110, MIX=100, SUB=30, CUT=60, RES=70, FTYPE=2, FENV=40, AD=60, AS=100, LRATE=96, LAMT=90, LDST=1, LSHP=2, DRV=110, CRU=30)),
+ (5, "Chip Bass", 165, bass(MODE=2, DET=0, MIX=0, COL=20, SUB=40, OCT=2, CUT=110, RES=10, FENV=10, AD=40, AS=80, VMODE=1, DRV=40, CRU=84, SGATE=60)),
+ (5, "Wall", 160, bass(MODE=0, DET=100, MIX=96, SUB=70, CUT=84, RES=24, FENV=30, AA=1, AD=70, AS=110, AR=30, CHOR=90, DRV=50, REV=24)),
+]
 WORLD0 = [0, 32, 48, 64, 80]                      # the first eighty: where each world starts
 
 # the sequences: sixteen steps, "-" a rest, a number the semitones from the root (negative below), a: accent, s: slide
@@ -229,6 +288,56 @@ SEQ = {
  "Glass Pluck": "12 - - 15 - 12 - - 19 - 15 - - 12 - 10", "Dawn Pad": SEQ_PAD,
  "Niche Lead": "12a - 12 - 15s 12 - 10a - 12 - - 7s 10 - 12", "Brass Stab": "0a - - 0 - - - 3a - - 0 - - 0a - -",
  "Stretch Vox": "12a - - 12 - 15s 12 - - - 10a - 12s 7 - -", "Soul Organ": "0 - - - - 0 - - - - 3 - - - 5 -",
+
+ # 2.1
+ "Dirt 808": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Victim": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Donk Smash": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Hyper Reese": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "Blown Sub": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Growler": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Wobble": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Screech Bass": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "FM Punch": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Rubber": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Crushed Sine": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Laser Bass": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "Metal Sub": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Square Push": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Hoover Low": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Pump Bass": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "Bit Donk": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Noise Bass": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Acid Smash": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Sub Glide": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "Fuzz Organ": "0a - - 0 - 0s 12 - 0a - 0 - 3s 0 - -",
+ "Tear Out": "0a 0 - 0 12a - 0 0s 10 - 0a 0 - 15s 12 -",
+ "Chip Bass": "0a - 0 - - 0a - 0 - 0s 7 - 0a - 3 -",
+ "Wall": "0 - - - 0s 3 - - 0 - - - -2s 0 - 5s",
+ "Slow Dawn": SEQ_PAD,
+ "Glass Halo": "12 - - - - - 19 - - - - - 15 - - -",
+ "Deep Drone": SEQ_PAD,
+ "Tape Choir": SEQ_PAD,
+ "Still Water": "12 - - - 15 - - - - - 19 - - - 14 -",
+ "Aurora": SEQ_PAD,
+ "Dust Organ": SEQ_PAD,
+ "Cloud Keys": SEQ_PAD,
+ "Sine Sea": SEQ_PAD,
+ "Metal Rain": "12 - 19 - 15 - 22 - 12 - 17 - 24 - 19 -",
+ "Night Wind": SEQ_PAD,
+ "Far Bell": "12 - - - - - - - 19 - - - - - - -",
+ "Warm Bed": SEQ_PAD,
+ "Shimmer": SEQ_PAD,
+ "Sub Tide": SEQ_PAD,
+ "Lullaby": SEQ_PAD,
+ "Frozen": SEQ_PAD,
+ "Hollow": SEQ_PAD,
+ "Drift Strings": SEQ_PAD,
+ "Pulse Fog": SEQ_PAD,
+ "Moth": "12 - - 19 - - 15 - - 22 - - 19 - - -",
+ "Cathedral": SEQ_PAD,
+ "Low Sun": SEQ_PAD,
+ "Ghost Tones": SEQ_PAD,
 }
 
 
@@ -255,11 +364,11 @@ assert len(P) == 80, len(P)
 world = []
 for i in range(80):
     world.append(max(w for w in range(4) if i >= WORLD0[w]))
-for w, name, bpm, d in NEW:
+for w, name, bpm, d in NEW + NEW2:
     P.append((name, bpm, d))
     world.append(w)
-order = [i for w in range(4) for i in range(len(P)) if world[i] == w]     # the list as the PRESETS knob walks it: a world at a time
-w0 = [sum(1 for x in world if x < w) for w in range(5)]
+order = [i for w in range(6) for i in range(len(P)) if world[i] == w]     # the list as the PRESETS knob walks it: a world at a time
+w0 = [sum(1 for x in world if x < w) for w in range(7)]
 assert len(set(n for n, _, _ in P)) == len(P)
 out = ["/* SPDX-License-Identifier: GPL-3.0-only */", "/* generated by tools/gen_presets.py: do not edit */",
        "/* A patch's number is its place in GS_PRE and never changes (a saved slot holds it). The order they are shown in is GS_ORD: a world",
@@ -281,5 +390,5 @@ out.append("static const unsigned char GS_PWORLD[GS_NPRE] = {%s};" % ", ".join(m
 out.append("static const unsigned char GS_ORD[GS_NPRE] = {%s};" % ", ".join(map(str, order)))
 out.append("static const unsigned char GS_POS[GS_NPRE] = {%s};" % ", ".join(map(str, pos)))
 out.append("static const unsigned char GS_W0[GS_NWORLD + 1] = {%s};" % ", ".join(map(str, w0)))
-assert len(P) == 112
+assert len(P) == 160
 print("\n".join(out))

@@ -44,9 +44,11 @@ static int sk_store_read(uint32_t sec, void *dst, uint32_t n)
     size_t got;
     if (!f)
         return -1;
+    memset(dst, 0xFF, n);                                  /* (a sector's unwritten bytes read as erased flash does) */
     got = fread(dst, 1, n, f);
     fclose(f);
-    return got == n ? 0 : -1;
+    (void)got;
+    return 0;
 }
 static void sk_midi_note(int on, uint32_t note, uint32_t vel)      /* (GS_MIDI_LOG set: the notes the host would be sent) */
 {
@@ -74,7 +76,7 @@ static uint32_t sk_in_keys(uint32_t *held) { uint32_t p = hs_kp; *held = hs_keys
 static void sk_led_btn(uint32_t l, uint32_t v) { hs_ledb[l] = (uint8_t)v; }
 static void sk_led_key(uint32_t n, uint32_t v) { hs_ledk[n] = (uint8_t)v; }
 
-static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI"};
+static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI", "DRIFT"};
 static const char *const BN[SB_N] = {"FX", "SCL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"};
 static const char *const EN[SE_N] = {"SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"};
 static int16_t *wav;
@@ -206,6 +208,8 @@ int main(int argc, char **argv)
             fwrite(gs.psnd, 1, GS_NP, f);
             fwrite(gs.ppre, 1, GS_NP, f);
             fwrite(gs.pp, 1, GS_NP * P_N, f);
+            fwrite(gs.mot_id, 1, GS_NP, f);
+            fwrite(gs.mot, 1, GS_NP * GS_NS, f);
             fclose(f);
         } else if (!strncmp(s, "wav:", 4))
             write_wav(s + 4);

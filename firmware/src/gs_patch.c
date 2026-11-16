@@ -6,12 +6,18 @@
 
 static void gs_load(uint32_t i)
 {
-    uint32_t k;
+    uint32_t k, lock = GS_SLOCK(), lk = gs.p[P_CKEY], ls = gs.p[P_CSCL];
     gs_all_off();
     gs.acur = -1;
     gs.preset = (uint8_t)(i % GS_NPRE);
     for (k = 0; k < P_N; k++)
         gs.p[k] = GS_PRE[gs.preset].p[k];
+    if (lock && !gs.p[P_CON]) {                                    /* the keys were kept to a scale: they still are, in the same key (a patch
+                                                                    * with chords of its own brings its own) */
+        gs.p[P_CON] = 2;
+        gs.p[P_CKEY] = (uint8_t)lk;
+        gs.p[P_CSCL] = (uint8_t)ls;
+    }
     /* The patch's own bar and tempo come with it only while the patterns are still a patch's: once the player has written, recorded
      * or loaded a sequence (pdirty), a patch change is a change of sound and the notes and the tempo stay. */
     if (!gs.pdirty) {
@@ -26,6 +32,9 @@ static void gs_load(uint32_t i)
             }
             gs.spl[pt] = 16;
             gs.psnd[pt] = 0;
+            gs.mot_id[pt] = 0;
+            for (k = 0; k < GS_NS; k++)
+                gs.mot[pt][k] = 0;
         }
         gs.pnext = 255;
     }
@@ -57,7 +66,7 @@ static void gs_set(uint32_t idx, int v)
     static const uint8_t MAXV[P_N] = {
         [P_MODE] = GS_NMODE - 1, [P_OCT] = 4, [P_FTYPE] = GS_NFT - 1, [P_LDST] = 4, [P_LSHP] = 3, [P_VMODE] = 2, [P_DTIM] = 5,
         [P_GPAT] = GS_NPAT - 1, [P_GRATE] = 3, [P_APAT] = 7, [P_ARATE] = 4, [P_ARNG] = 3, [P_AON] = 1, [P_GLL] = 4, [P_GLT] = 3,
-        [P_SRATE] = 3, [P_SMET] = 3, [P_CON] = 1, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 7,
+        [P_SRATE] = 3, [P_SMET] = 3, [P_CON] = 2, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 7,
     };
     int mx = MAXV[idx] ? MAXV[idx] : 127;
     if (v < 0)

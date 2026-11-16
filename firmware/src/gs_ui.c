@@ -23,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_OSC2, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
 #define UI_SEQP() (ui.page == PG_SEQ || ui.page == PG_SEQ4 || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)   /* one of the sequencer's pages is open */
 
 static int32_t sk_in_enc(uint32_t role);
@@ -50,6 +50,7 @@ typedef struct {
 static const ui_page_t UI_PG[PG_N] = {
     {"PLAY", {"CUTOFF", "RESO", "DETUNE", "F.ENV"}, {P_CUT, P_RES, P_DET, P_FENV}, 254, 0},      /* (ALGORITHM here: the world) */
     {"OSCILLATOR", {"DETUNE", "MIX", "SUB", "COLOUR"}, {P_DET, P_MIX, P_SUB, P_COL}, P_MODE, 0},
+    {"PITCH", {"DRIFT", "OCTAVE", "TAPE", "GLIDE"}, {P_DRIFT, P_OCT, P_TAPE, P_GLIDE}, P_MODE, 0},
     {"FILTER", {"CUTOFF", "RESO", "KEY", "DRIVE"}, {P_CUT, P_RES, P_KEY, P_DRV}, P_FTYPE, 0},
     {"AMP ENVELOPE", {"ATTACK", "DECAY", "SUS", "REL"}, {P_AA, P_AD, P_AS, P_AR}, P_VMODE, 0},
     {"FILTER ENV", {"ATTACK", "DECAY", "SUS", "REL"}, {P_FA, P_FD, P_FS, P_FR}, P_FTYPE, 0},
@@ -65,7 +66,7 @@ static const ui_page_t UI_PG[PG_N] = {
     {"SEQ TOOLS", {"CLEAR", "COPY", "FILL", "SHIFT"}, {255, 255, 255, 255}, 255, 1},
     {"CHORDS", {"KEY", "SCALE", "LAYOUT", "VOICE"}, {P_CKEY, P_CSCL, P_CLAY, P_CVOI}, P_CON, 0},
     {"PERFORM", {"MACRO", "KIND", "DJ FILT", "PUMP"}, {255, 255, 255, P_GDEP}, 255, 0},
-    {"SAVE", {"SLOT", "DO", "CLOCK", "BATTERY"}, {255, 255, 255, 255}, 255, 0},
+    {"SAVE", {"SLOT", "DO", "KEYS", "BATTERY"}, {255, 255, 255, 255}, 255, 0},
 };
 
 static struct {
@@ -78,6 +79,10 @@ static struct {
     uint32_t cur_t;                      /* when it was last moved (the view follows the playhead after a while) */
     int8_t shift;                        /* what the pattern has been shifted by (shown) */
     uint8_t keys_down[27], kchord[27], con_prev;
+    uint8_t silent;                      /* the keys go to the USB host only: nothing here sounds (not saved: off at power-on) */
+    uint8_t kraw[27], kmute[27];         /* each key held: the note it sent to the host, and that it was silent here */
+    uint8_t mot_k;                       /* knob recording: the parameter a hand is on */
+    uint32_t mot_t;                      /* .. and when it last moved (0: none) */
     uint32_t keys_held;
     uint32_t toast_t;
     char toast[20];
@@ -93,7 +98,7 @@ static struct {
 #define SV_PER 3                                          /* slots to a sector */
 #define SV_SECT 6                                         /* sectors */
 #define SV_N (SV_PER * SV_SECT)                           /* eighteen slots */
-#define SV_SLOT (4 + P_N + GS_NP + GS_NP * GS_NS)         /* a slot: the patch's header, every parameter, the eight patterns' lengths and steps */
+#define SV_SLOT (4 + P_N55 + GS_NP + GS_NP * GS_NS)         /* a slot: the patch's header, every parameter, the eight patterns' lengths and steps */
 static struct {                                           /* the sector in hand (a save rewrites only its own sector) */
     uint32_t magic;
     uint8_t slot[SV_PER][SV_SLOT];
@@ -104,19 +109,28 @@ static uint8_t sv_sec = 255;                              /* which sector sv hol
  * chance, each pattern's own sound, and room kept for a recorded knob. The six older sectors are only ever read: a slot that has no
  * sector of its own yet is taken from them, so what an older version saved is still there after any number of updates and saves. */
 #define SV_NEW0 SV_SECT                                   /* the first of the new sectors */
-#define SV4_SX (SV_SLOT)                                  /* the offsets of what a new slot adds: the steps' extras */
-#define SV4_PSND (SV4_SX + GS_NP * GS_NS)                 /* which patterns keep a sound */
-#define SV4_PPRE (SV4_PSND + GS_NP)                       /* the patch each began as */
-#define SV4_PP (SV4_PPRE + GS_NP)                         /* their parameters */
-#define SV4_MOT (SV4_PP + GS_NP * P_N)                    /* kept for a recorded knob: a parameter a pattern, a value a step */
-#define SV4_SLOT (SV4_MOT + GS_NP + GS_NP * GS_NS)
+/* A slot's layout, for a count of parameters pn (55 in what 1.2 to 2.0 wrote, "GST4"; P_N in what this version writes, "GST5":
+ * 2.1 added a parameter). Both hold the same things in the same order, and both are read; what an older slot lacks reads as "none". */
+#define SVL_LEN(pn) (4u + (pn))                           /* the patterns' lengths */
+#define SVL_SP(pn) (SVL_LEN(pn) + GS_NP)                  /* their steps */
+#define SVL_SX(pn) (SVL_SP(pn) + GS_NP * GS_NS)           /* the steps' extras: repeat, chance */
+#define SVL_PSND(pn) (SVL_SX(pn) + GS_NP * GS_NS)         /* which patterns keep a sound */
+#define SVL_PPRE(pn) (SVL_PSND(pn) + GS_NP)               /* the patch each began as */
+#define SVL_PP(pn) (SVL_PPRE(pn) + GS_NP)                 /* their parameters */
+#define SVL_MOT(pn) (SVL_PP(pn) + GS_NP * (pn))           /* the recorded knob: a parameter a pattern, then a value a step */
+#define SVL_SLOT(pn) (SVL_MOT(pn) + GS_NP + GS_NP * GS_NS)
+#define SV4_SLOT SVL_SLOT(P_N55)
+#define SV5_SLOT SVL_SLOT(P_N)
 static struct {
     uint32_t magic;
-    uint8_t d[SV4_SLOT];
+    uint8_t d[(SV5_SLOT + 3u) & ~3u];
     uint32_t sum;
 } s4;
 static uint8_t s4_slot = 255;                             /* which slot s4 holds */
+static uint8_t s4_pn = P_N;                               /* .. and the layout it is in: how many parameters */
 #define SV4_MAGIC 0x34545347u                /* "GST4" */
+#define SV5_MAGIC 0x35545347u                /* "GST5" */
+_Static_assert(sizeof s4 <= 4096, "a slot is a sector");
 static uint32_t sv_full;                                  /* a bit a slot: kept */
 #define SV_MAGIC 0x33545347u                 /* "GST3" */
 
@@ -149,7 +163,7 @@ static char *ui_str(char *p, const char *s)
 
 /* the world a patch belongs to: trance (the first 32 patches), house, techno, garage (16 each). It sets the look and nothing else. */
 static int ui_world(void) { return GS_PWORLD[gs.preset % GS_NPRE]; }
-static const char *const UI_WORLD[GS_NWORLD] = {"TRANCE", "HOUSE", "TECHNO", "GARAGE"};
+static const char *const UI_WORLD[GS_NWORLD] = {"TRANCE", "HOUSE", "TECHNO", "GARAGE", "AMBIENT", "BASS"};
 
 #include "gs_chord.c"
 
@@ -175,7 +189,7 @@ static const char *ui_val(uint32_t idx, char *buf)
     case P_CSCL: return CD_SCNAME[v % CD_NSC];
     case P_CLAY: return CD_LAYNAME[v & 3];
     case P_CVOI: return CD_VOINAME[v % CD_NVOI];
-    case P_CON: return v ? "ON" : "OFF";
+    case P_CON: return v == 2 ? "SCALE LOCK" : v ? "ON" : "OFF";
     case P_SRATE: return GS_GR_NAME[v & 3];
     case P_AON: return v ? "ON" : "OFF";
     case P_OCT: ui_num(buf, v - 2); return buf;
@@ -184,6 +198,16 @@ static const char *ui_val(uint32_t idx, char *buf)
     }
     ui_num(buf, v);
     return buf;
+}
+/* a parameter's name: the label of the knob that sets it */
+static const char *ui_pname(uint32_t idx)
+{
+    uint32_t g, k;
+    for (g = 0; g < PG_N; g++)
+        for (k = 0; k < 4u; k++)
+            if (UI_PG[g].p[k] == idx)
+                return UI_PG[g].k[k];
+    return "?";
 }
 static int ui_is_enum(uint32_t idx)
 {
@@ -206,7 +230,7 @@ static int ui_maxv(uint32_t idx)
     case P_ARNG: return 3;
     case P_AON: return 1;
     case P_SRATE: return 3;
-    case P_CON: return 1;
+    case P_CON: return 2;
     case P_CKEY: return 11;
     case P_CSCL: return CD_NSC - 1;
     case P_CLAY: return 3;
@@ -249,42 +273,38 @@ static uint32_t sv_sum(void)
         h = (h ^ p[i]) * 16777619u;
     return h;
 }
-static void sv_pack(uint8_t *d)
+static void sv_pack(uint8_t *d)                             /* (always this version's layout) */
 {
-    uint32_t i;
+    uint32_t i, k;
     d[0] = 1;
     d[1] = gs.preset;
     d[2] = gs.bpm;
-    d[3] = (uint8_t)gs.oct;
     for (i = 0; i < P_N; i++)
         d[4u + i] = gs.p[i];
-    for (i = 0; i < GS_NP; i++) {
-        uint32_t k;
-        d[4u + P_N + i] = gs.spl[i];
-        for (k = 0; k < GS_NS; k++)
-            d[4u + P_N + GS_NP + i * GS_NS + k] = gs.sp[i][k];
-    }
     if (gs.psnd[gs.pcur]) {                                 /* the pattern playing keeps its sound: as it is now */
         for (i = 0; i < P_N; i++)
             gs.pp[gs.pcur][i] = gs.p[i];
         gs.ppre[gs.pcur] = gs.preset;
     }
     for (i = 0; i < GS_NP; i++) {
-        uint32_t k;
-        for (k = 0; k < GS_NS; k++)
-            d[SV4_SX + i * GS_NS + k] = gs.sx[i][k];
-        d[SV4_PSND + i] = gs.psnd[i];
-        d[SV4_PPRE + i] = gs.ppre[i];
+        d[SVL_LEN(P_N) + i] = gs.spl[i];
+        for (k = 0; k < GS_NS; k++) {
+            d[SVL_SP(P_N) + i * GS_NS + k] = gs.sp[i][k];
+            d[SVL_SX(P_N) + i * GS_NS + k] = gs.sx[i][k];
+            d[SVL_MOT(P_N) + GS_NP + i * GS_NS + k] = gs.mot[i][k];
+        }
+        d[SVL_PSND(P_N) + i] = gs.psnd[i];
+        d[SVL_PPRE(P_N) + i] = gs.ppre[i];
+        d[SVL_MOT(P_N) + i] = gs.mot_id[i];
         for (k = 0; k < P_N; k++)
-            d[SV4_PP + i * P_N + k] = gs.pp[i][k];
+            d[SVL_PP(P_N) + i * P_N + k] = gs.pp[i][k];
     }
-    for (i = SV4_MOT; i < SV4_SLOT; i++)
-        d[i] = 0;
     d[3] = (uint8_t)(((uint32_t)gs.oct & 7u) | ((uint32_t)gs.pcur << 3));     /* the octave, and the pattern it was on */
 }
-static void sv_unpack(const uint8_t *d)
+/* a slot into the instrument; pn: the layout d is in (a parameter the slot has not got takes its default) */
+static void sv_unpack(const uint8_t *d, uint32_t pn)
 {
-    uint32_t i;
+    uint32_t i, k;
     gs_all_off();
     gs.acur = -1;
     gs.preset = (uint8_t)(d[1] % GS_NPRE);
@@ -293,28 +313,24 @@ static void sv_unpack(const uint8_t *d)
         int o = (int)(d[3] & 7u);                           /* (three bits, signed: an older slot's whole byte reads the same) */
         gs.oct = (int8_t)ui_clamp(o > 3 ? o - 8 : o, -2, 2);
     }
-    for (i = 0; i < P_N; i++) {
-        int v = d[4u + i] & 127;
-        gs.p[i] = (uint8_t)ui_clamp(v, 0, ui_maxv(i));
-    }
+    for (i = 0; i < P_N; i++)
+        gs.p[i] = i < pn ? (uint8_t)ui_clamp(d[4u + i] & 127, 0, ui_maxv(i)) : GS_DEF[i];
     if (gs.p[P_ARNG] < 1u)
         gs.p[P_ARNG] = 1;
     for (i = 0; i < GS_NP; i++) {
-        uint32_t k;
-        gs.spl[i] = (uint8_t)ui_clamp(d[4u + P_N + i], 1, GS_NS);
+        uint32_t id = d[SVL_MOT(pn) + i];
+        gs.spl[i] = (uint8_t)ui_clamp(d[SVL_LEN(pn) + i], 1, GS_NS);
+        gs.mot_id[i] = (uint8_t)(id <= P_N ? id : 0u);
         for (k = 0; k < GS_NS; k++) {
-            uint8_t b = d[4u + P_N + GS_NP + i * GS_NS + k];
+            uint8_t b = d[SVL_SP(pn) + i * GS_NS + k], m = d[SVL_MOT(pn) + GS_NP + i * GS_NS + k];
             gs.sp[i][k] = (uint8_t)((b & 0xC0u) | (uint8_t)ui_clamp(b & 63, 0, 37));
+            gs.sx[i][k] = (uint8_t)(d[SVL_SX(pn) + i * GS_NS + k] & 15u);
+            gs.mot[i][k] = (uint8_t)(gs.mot_id[i] && m <= 128u ? m : 0u);
         }
-    }
-    for (i = 0; i < GS_NP; i++) {
-        uint32_t k;
-        for (k = 0; k < GS_NS; k++)
-            gs.sx[i][k] = (uint8_t)(d[SV4_SX + i * GS_NS + k] & 15u);
-        gs.psnd[i] = (uint8_t)(d[SV4_PSND + i] & 1u);
-        gs.ppre[i] = (uint8_t)(d[SV4_PPRE + i] % GS_NPRE);
+        gs.psnd[i] = (uint8_t)(d[SVL_PSND(pn) + i] & 1u);
+        gs.ppre[i] = (uint8_t)(d[SVL_PPRE(pn) + i] % GS_NPRE);
         for (k = 0; k < P_N; k++)
-            gs.pp[i][k] = (uint8_t)ui_clamp(d[SV4_PP + i * P_N + k] & 127, 0, ui_maxv(k));
+            gs.pp[i][k] = k < pn ? (uint8_t)ui_clamp(d[SVL_PP(pn) + i * pn + k] & 127, 0, ui_maxv(k)) : GS_DEF[k];
         if (gs.pp[i][P_ARNG] < 1u)
             gs.pp[i][P_ARNG] = 1;
     }
@@ -328,7 +344,7 @@ static void sv_unpack(const uint8_t *d)
 /* 0.6.0 and 0.6.1 kept six slots, each with four patterns, in one sector ("GST2"). While that sector is still in flash, its slots are
  * read from it and carried over to the new layout: slots 1-3 into sector 0 and 4-6 into sector 1. Sector 1 is written before sector 0
  * is touched, so a save never destroys the old slots until the carried-over copy of the rest is safe. */
-#define SV_OLD_SLOT (4 + P_N + 4 + 4 * GS_NS)
+#define SV_OLD_SLOT (4 + P_N55 + 4 + 4 * GS_NS)
 #define SV_OLD_MAGIC 0x32545347u
 static struct {
     uint32_t magic;
@@ -355,12 +371,12 @@ static void sv_from_old(uint32_t sec)                      /* sector sec (0 or 1
         uint8_t *d = sv.slot[i];
         if (!o[0])
             continue;
-        for (k = 0; k < 4u + P_N; k++)                      /* the header and every parameter */
+        for (k = 0; k < 4u + P_N55; k++)                      /* the header and every parameter */
             d[k] = o[k];
         for (j = 0; j < GS_NP; j++) {                       /* patterns A-D as they were, E-H empty */
-            d[4u + P_N + j] = j < 4u ? o[4u + P_N + j] : 16;
+            d[4u + P_N55 + j] = j < 4u ? o[4u + P_N55 + j] : 16;
             for (k = 0; k < GS_NS; k++)
-                d[4u + P_N + GS_NP + j * GS_NS + k] = j < 4u ? o[4u + P_N + 4u + j * GS_NS + k] : 0;
+                d[4u + P_N55 + GS_NP + j * GS_NS + k] = j < 4u ? o[4u + P_N55 + 4u + j * GS_NS + k] : 0;
         }
     }
     sv.magic = SV_MAGIC;
@@ -379,14 +395,15 @@ static void ui_sv_sec(uint32_t sec)                    /* bring a sector in (an 
     }
     sv_sec = (uint8_t)sec;
 }
-static uint32_t s4_sum(void)
+static uint32_t s4_sum(uint32_t n)
 {
     uint32_t i, h = 0x811C9DC5u;
-    for (i = 0; i < SV4_SLOT; i++)
+    for (i = 0; i < n; i++)
         h = (h ^ s4.d[i]) * 16777619u;
     return h;
 }
-/* bring a slot in: from its own sector if it has one, else from where an older version kept it (s4.d[0] 0: nothing there) */
+/* bring a slot in: from its own sector if it has one (in this version's layout or the one before), else from where an older version
+ * kept it (s4.d[0] 0: nothing there). s4_pn says which layout came. */
 static void ui_sv_slot(uint32_t slot)
 {
     uint32_t i;
@@ -394,15 +411,27 @@ static void ui_sv_slot(uint32_t slot)
     if (s4_slot == slot)
         return;
     s4_slot = (uint8_t)slot;
-    if (sk_store_read(SV_NEW0 + slot, &s4, sizeof s4) == 0 && s4.magic == SV4_MAGIC && s4.sum == s4_sum())
-        return;
+    s4_pn = P_N;
+    if (sk_store_read(SV_NEW0 + slot, &s4, sizeof s4) == 0) {
+        if (s4.magic == SV5_MAGIC && s4.sum == s4_sum(SV5_SLOT))
+            return;
+        if (s4.magic == SV4_MAGIC) {                            /* 1.2 to 2.0: its sum sits where its shorter slot ended */
+            const uint8_t *q = (const uint8_t *)&s4 + 4u + ((SV4_SLOT + 3u) & ~3u);
+            uint32_t sum = (uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+            if (sum == s4_sum(SV4_SLOT)) {
+                s4_pn = P_N55;
+                return;
+            }
+        }
+    }
     for (i = 0; i < sizeof s4; i++)
         ((uint8_t *)&s4)[i] = 0;
+    s4_pn = P_N55;
     ui_sv_sec(slot / SV_PER);
     o = sv.slot[slot % SV_PER];
     if (!o[0])
         return;
-    for (i = 0; i < SV_SLOT; i++)                           /* an older slot is the start of a new one: the rest is "nothing extra" */
+    for (i = 0; i < SV_SLOT; i++)                           /* an older slot is the start of a 1.2 one: the rest is "nothing extra" */
         s4.d[i] = o[i];
 }
 static void ui_store_load(void)
@@ -426,19 +455,19 @@ static void ui_do_save(uint32_t now)
         if (!s4.d[0])
             ui_toast("EMPTY", now);
         else {
-            sv_unpack(s4.d);
+            sv_unpack(s4.d, s4_pn);
             ui_toast("LOADED", now);
             ui.pop_t = now;
         }
         return;
     }
+    for (i = 0; i < sizeof s4.d; i++)                       /* (a cleared slot has a sector too: it hides the older copy) */
+        s4.d[i] = 0;
     if (ui.act == 1u)
         sv_pack(s4.d);
-    else
-        for (i = 0; i < SV4_SLOT; i++)                      /* (a cleared slot has a sector too: it hides the older copy) */
-            s4.d[i] = 0;
-    s4.magic = SV4_MAGIC;
-    s4.sum = s4_sum();
+    s4_pn = P_N;
+    s4.magic = SV5_MAGIC;
+    s4.sum = s4_sum(SV5_SLOT);
     if (sk_store_write(SV_NEW0 + ui.slot, &s4, sizeof s4) == 0) {
         sv_full = ui.act == 1u ? sv_full | bit : sv_full & ~bit;
         ui_toast(ui.act == 1u ? "SAVED" : "CLEARED", now);
@@ -530,10 +559,10 @@ static void ui_input(uint32_t now)
     if (pr & (1u << SB_HOME)) {                                     /* HOME, and again: the chords */
         ui.page = ui.page == PG_HOME ? PG_CHORD : ui.page == PG_CHORD ? PG_PERF : PG_HOME;      /* HOME, the chords, the performance page */
         if (ui.page == PG_CHORD)
-            ui_toast(gs.p[P_CON] ? "CHORDS ON" : "ALGO TURN: CHORDS", now);
+            ui_toast(GS_SLOCK() ? "SCALE LOCK" : GS_CHORDS() ? "CHORDS ON" : "ALGO: CHORDS, LOCK", now);
     }
     if (pr & (1u << SB_EDIT))
-        ui_page_press(PG_OSC, 255);
+        ui_page_press(PG_OSC, PG_OSC2);                             /* EDIT: the oscillator; again: its pitch (drift, octave, tape, glide) */
     if (pr & (1u << SB_SCL))
         ui_page_press(PG_FLT, 255);
     if (pr & (1u << SB_ENV))
@@ -613,11 +642,12 @@ static void ui_input(uint32_t now)
         gs.oct = (int8_t)ui_clamp(gs.oct + 1, -2, 2);
         ui.hud_t = now;
     }
-    if (!gs.p[P_CON] && (cd_down || cd.held || cd.sounding))          /* switched off: let go of what the chords hold */
+    if (!GS_CHORDS() && (cd_down || cd.held || cd.sounding))          /* switched off: let go of what the chords hold */
         cd_all_off();
     if (gs.p[P_CON] != ui.con_prev) {
         ui.con_prev = gs.p[P_CON];
-        ui_toast(gs.p[P_CON] ? "CHORDS ON" : "CHORDS OFF", now);
+        ui_toast(GS_SLOCK() ? "SCALE LOCK" : GS_CHORDS() ? "CHORDS ON" : "CHORDS OFF", now);
+        gs_all_off();                                               /* (what the keys hold was played the other way) */
     }
     /* the keys: 27 notes from C3, moved by the octave. Each also goes to the USB host as a note (the key itself, whatever the chords or
      * the sequencer make of it here) */
@@ -627,11 +657,20 @@ static void ui_input(uint32_t now)
         if (note < 0 || note > 120)
             continue;
         if (on && !ui.keys_down[i]) {
-            ui.keys_down[i] = (uint8_t)note;
             sk_midi_note(1, (uint32_t)note, 100);
+            ui.kraw[i] = (uint8_t)note;
+            if (ui.silent) {                                        /* SILENT: the key goes to the host and nothing here sounds or is written */
+                ui.keys_down[i] = (uint8_t)note;
+                ui.kmute[i] = 1;
+                continue;
+            }
+            if (GS_SLOCK())                                         /* the scale lock: a key off the scale plays the scale's note under it */
+                while (!cd_in_scale(((note - (int)gs.p[P_CKEY]) % 12 + 12) % 12) && note > 0)
+                    note--;
+            ui.keys_down[i] = (uint8_t)note;
             if (ui.page == PG_SEQ && !gs.srun) {                    /* stopped, on the sequencer's page: a key writes the step (key 13 is the root) */
                 int n = ui_clamp(note - (48 + 12 * gs.oct + 12) + 12, 0, 36), v = 0, wr = 1;
-                if (gs.p[P_CON]) {                                  /* the chords are on: a root key writes its root (the step plays its chord), a chord button writes nothing */
+                if (GS_CHORDS()) {                                  /* the chords are on: a root key writes its root (the step plays its chord), a chord button writes nothing */
                     cd_prepare();
                     wr = cd_role((int)i, gs.p[P_CLAY], &v) == 2;
                     n = ui_clamp(cd_pitch(v) - ((int)gs.sroot - 12), 0, 36);
@@ -644,14 +683,16 @@ static void ui_input(uint32_t now)
                     ui.cur_t = now;
                 }
             }
-            if (gs.p[P_CON]) {
+            if (GS_CHORDS()) {
                 ui.kchord[i] = 1;
                 cd_key((int)i, 1);
             } else
                 gs_key((uint32_t)note, 1);
         } else if (!on && ui.keys_down[i]) {
-            sk_midi_note(0, ui.keys_down[i], 0);
-            if (ui.kchord[i]) {
+            sk_midi_note(0, ui.kraw[i], 0);
+            if (ui.kmute[i])
+                ui.kmute[i] = 0;
+            else if (ui.kchord[i]) {
                 ui.kchord[i] = 0;
                 cd_key((int)i, 0);
             } else
@@ -785,9 +826,16 @@ static void ui_input(uint32_t now)
             ui.k_t[i] = now;
             gs.pdirty = 1;
             if (i == 0u) {
+                if (sg < 0) {                                       /* (to the left: only the recorded knob goes) */
+                    for (k = 0; k < GS_NS; k++)
+                        gs.mot[gs.pcur][k] = 0;
+                    ui_toast(gs.mot_id[gs.pcur] ? "KNOB REC CLEARED" : "NO KNOB REC", now);
+                    gs.mot_id[gs.pcur] = 0;
+                }
                 if (sg > 0) {
                     for (k = 0; k < GS_NS; k++)
-                        gs.sp[gs.pcur][k] = gs.sx[gs.pcur][k] = 0;
+                        gs.sp[gs.pcur][k] = gs.sx[gs.pcur][k] = gs.mot[gs.pcur][k] = 0;
+                    gs.mot_id[gs.pcur] = 0;
                     tp = ui_str(tb, "PATTERN ");
                     *tp++ = (char)('A' + gs.pcur);
                     ui_str(tp, " CLEARED");
@@ -798,7 +846,9 @@ static void ui_input(uint32_t now)
                 for (k = 0; k < GS_NS; k++) {
                     gs.sp[gs.pcur][k] = gs.sp[src][k];
                     gs.sx[gs.pcur][k] = gs.sx[src][k];
+                    gs.mot[gs.pcur][k] = gs.mot[src][k];
                 }
+                gs.mot_id[gs.pcur] = gs.mot_id[src];
                 gs.spl[gs.pcur] = gs.spl[src];
                 tp = ui_str(tb, "COPIED FROM ");
                 *tp++ = (char)('A' + src);
@@ -840,6 +890,13 @@ static void ui_input(uint32_t now)
                 ui.slot = (uint8_t)ui_clamp((int)ui.slot + (d > 0 ? 1 : -1), 0, SV_N - 1);
             else if (i == 1u)
                 ui.act = (uint8_t)ui_clamp((int)ui.act + (d > 0 ? 1 : -1), 0, 2);
+            else if (i == 2u && (d > 0) != ui.silent) {             /* KEYS: SOUND, or SILENT (they play the USB host only) */
+                ui.silent = (uint8_t)(d > 0);
+                gs_all_off();
+                cd_all_off();
+                ui_toast(ui.silent ? "KEYS SILENT" : "KEYS SOUND", now);
+            }
+            ui.k_t[i] = now;
             continue;
         }
         {
@@ -847,14 +904,38 @@ static void ui_input(uint32_t now)
             int step = ui_is_enum(idx) || idx == P_ARNG || idx == P_OCT ? (d > 0 ? 1 : -1) : d * (d > 2 || d < -2 ? 3 : 1);
             gs_set(idx, (int)gs.p[idx] + step);
             ui.k_t[i] = now;
+            if (gs.srec && gs.srun && idx < P_N && !ui_is_enum(idx)) {   /* recording, and a knob turns: it is recorded with the notes */
+                ui.mot_k = (uint8_t)idx;
+                ui.mot_t = now ? now : 1u;
+            }
         }
+    }
+    /* Knob recording. While the sequence records, a sound knob that is turned is written into the pattern, a value a step, for as
+     * long as it keeps moving (and a third of a second after); each pattern keeps one knob, and a different knob starts it afresh.
+     * Played back, each step sets the knob to what was recorded there. */
+    if (ui.mot_t && gs.srec && gs.srun && now - ui.mot_t < 350u) {
+        uint32_t pc = gs.pcur, st = gs.sstep;
+        gs.mot_hold = 1;
+        if (gs.mot_id[pc] != ui.mot_k + 1u) {
+            uint32_t k;
+            for (k = 0; k < GS_NS; k++)
+                gs.mot[pc][k] = 0;
+            gs.mot_id[pc] = (uint8_t)(ui.mot_k + 1u);
+        }
+        if (st < GS_NS && !gs.scount) {
+            gs.mot[pc][st] = (uint8_t)(gs.p[ui.mot_k] + 1u);
+            gs.pdirty = 1;
+        }
+    } else {
+        ui.mot_t = 0;
+        gs.mot_hold = 0;
     }
     /* the lamps: the page's button, the arp, the hold, the glitch */
     {
         static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_EDIT && ui.page == PG_OSC2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
@@ -875,7 +956,10 @@ static void ui_input(uint32_t now)
             uint32_t lv = 0;
             if (ui.keys_down[i] || (gs.srun && gs.snote >= 0 && gs.snote == note))   /* a key you press, or the step the sequence is playing */
                 lv = 3;
-            else if (gs.p[P_CON]) {                                  /* the chord keys: the buttons that count, the roots in the key's own note */
+            else if (GS_SLOCK()) {                                   /* the scale lock: the notes of the scale, its own note brighter */
+                int rel = ((note - (int)gs.p[P_CKEY]) % 12 + 12) % 12;
+                lv = rel == 0 ? 2u : cd_in_scale(rel) ? 1u : 0u;
+            } else if (GS_CHORDS()) {                                /* the chord keys: the buttons that count, the roots in the key's own note */
                 int v, r = cd_role((int)i, gs.p[P_CLAY], &v);
                 cd_prepare();
                 if (r == 1 && (cd_set(gs.p[P_CLAY]) >> v) & 1u)
@@ -1037,8 +1121,8 @@ static void vz_towers(uint32_t now)
 /* the home page: the world's emblem, a glint on it that swells with the sound, and a glint either side for each voice that is sounding */
 static void vz_home(uint32_t now)
 {
-    static const int8_t GL[4][2] = {{0, 0}, {0, -1}, {0, -2}, {7, -3}}, VP[GS_NV][2] = {{-78, -14}, {78, 10}, {-56, 16}, {56, -18}, {-94, 8}, {94, -8}};
-    int w = ui_world() & 3, cx = VX + VW / 2, cy = VY + 40, i, lv = gs.level > 60 ? 5 : gs.level / 12;
+    static const int8_t GL[GS_NWORLD][2] = {{0, 0}, {0, -1}, {0, -2}, {7, -3}, {-12, -9}, {2, -12}}, VP[GS_NV][2] = {{-78, -14}, {78, 10}, {-56, 16}, {56, -18}, {-94, 8}, {94, -8}};
+    int w = (int)((uint32_t)ui_world() % GS_NWORLD), cx = VX + VW / 2, cy = VY + 40, i, lv = gs.level > 60 ? 5 : gs.level / 12;
     fb_art(ART_WORLD_S[w], cx, cy);
     fb_spark(cx + GL[w][0], cy + GL[w][1], 3 + lv, C_HOT);
     for (i = 0; i < GS_NV; i++) {
@@ -1470,6 +1554,11 @@ static void vz_seq(uint32_t now)
         else if (showcur && s == ui.cur)
             c = ((now >> 8) & 1u) ? C_HOT : C_O6;
         fb_rect(x, VY + 61, 11, 3, c);
+        if (!out && gs.mot_id[pc] && gs.mot[pc][s]) {                        /* a recorded knob: its value at this step, a point over the column */
+            int my = VY + 57 - ((int)gs.mot[pc][s] - 1) * 34 / 127;
+            fb_rect(x + 4, my, 3, 2, C_HOT);
+            fb_hline(x + 3, my + 2, 5, C_O5);
+        }
         if (!out && SP_ON(gs.sp[pc][s])) {
             int r = SX_RAT(gs.sx[pc][s]), ch = SX_CH(gs.sx[pc][s]), k;
             for (k = 1; k < r; k++)                                          /* a repeated step: its cell cut into as many */
@@ -1529,6 +1618,11 @@ static void vz_seq(uint32_t now)
     p = ui_str(p, "/");
     p = ui_num(p, nb);
     fb_text_r(VX + VW - 4, VY + 74, b, C_O6);
+    if (gs.mot_id[pc]) {                                                     /* the knob this pattern has recorded */
+        p = ui_str(b, "KNOB ");
+        ui_str(p, ui_pname((uint32_t)gs.mot_id[pc] - 1u));
+        fb_micro_c(VX + VW / 2 + 6, VY + 79, b, gs.mot_hold ? C_HOT : C_O6, 1);
+    }
 }
 
 /* the chords page: the key and scale at the top left, the chord you are playing at the top right, a chip for each degree of the key
@@ -1537,7 +1631,7 @@ static void vz_seq(uint32_t now)
 static void vz_chord(uint32_t now)
 {
     static const char *const RN[8] = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII"};
-    int i, nchip, cw, lo = 48 + 12 * gs.oct, on = gs.p[P_CON];
+    int i, nchip, cw, lo = 48 + 12 * gs.oct, on = GS_CHORDS();
     char b[24], *p;
     (void)now;
     cd_prepare();
@@ -1556,7 +1650,7 @@ static void vz_chord(uint32_t now)
     if (cd.sounding || cd.nshown)
         fb_text2_c(VX + 158, VY + 5, cd.name, cd.sounding ? C_HOT : C_O4, 0);
     else
-        fb_text_c(VX + 158, VY + 9, on ? "PLAY A KEY" : "CHORDS OFF", C_S4);
+        fb_text_c(VX + 158, VY + 9, on ? "PLAY A KEY" : GS_SLOCK() ? "SCALE LOCK" : "CHORDS OFF", GS_SLOCK() ? C_O6 : C_S4);
     /* a chip a degree */
     nchip = cd.m > 8 ? 0 : (int)cd.m;
     cw = nchip ? (VW - 8) / nchip : 0;
@@ -1900,12 +1994,15 @@ static void ui_status(uint32_t now)
     if (gs.oct > 0)
         *p++ = '+';
     ui_num(p, gs.oct);
-    fb_micro_r(233, 126, b, gs.oct ? C_O6 : C_DIM, 1);
+    if (ui.silent)                                                         /* (the keys are silent here: say so where it is always seen) */
+        fb_micro_r(233, 126, "KEYS SILENT", ((now >> 9) & 1u) ? C_R4 : C_R2, 1);
+    else
+        fb_micro_r(233, 126, b, gs.oct ? C_O6 : C_DIM, 1);
     {
         static const char *const LN[4] = {"ARP", "CHORD", "HOLD", "GLITCH"};
         uint8_t on[4];
         on[0] = gs.p[P_AON] || gs.srun;
-        on[1] = gs.p[P_CON];
+        on[1] = gs.p[P_CON] != 0;
         on[2] = gs.hold;
         on[3] = gl.on;
         for (i = 0; i < 4; i++) {
@@ -1945,10 +2042,10 @@ static void ui_cpu(void)
  * moment when ALGORITHM steps to another world. */
 static void ui_splash(int w, int a, uint32_t now)
 {
-    static const int8_t GL[4][2] = {{0, 0}, {0, -2}, {0, -4}, {18, -8}};        /* where each emblem's glint sits */
+    static const int8_t GL[GS_NWORLD][2] = {{0, 0}, {0, -2}, {0, -4}, {18, -8}, {-30, -22}, {4, -30}};        /* where each emblem's glint sits */
     char b[12], *p;
     int cx = 120, cy = 90, i, rr = a < 500 ? 16 + a * 54 / 500 : 70, tw = (int)((now >> 7) & 7u);
-    w &= 3;
+    w = (int)((uint32_t)w % GS_NWORLD);
     if (ui.theme_on != 3u * (uint32_t)w) {                                    /* its colours at once, not faded in */
         fb_theme_snap(3u * (uint32_t)w);
         ui.theme_on = (uint8_t)(3u * (uint32_t)w);
@@ -1972,7 +2069,7 @@ static void ui_splash(int w, int a, uint32_t now)
     fb_micro(13, 13, "GS/FM-1", C_O6, 1);
     p = ui_str(b, "WORLD ");
     p = ui_num(p, w + 1);
-    ui_str(p, "/4");
+    ui_str(p, "/6");
     fb_micro_r(227, 13, b, C_O6, 1);
     if (a > 250) {
         fb_art(ART_WORLD[w], cx, cy);
@@ -2030,6 +2127,7 @@ static void ui_draw(uint32_t now)
         vz_gate_strip(VY + VH - 14, 8);
         break;
     case PG_OSC:
+    case PG_OSC2:
         vz_towers(now);
         vz_gate_strip(VY + VH - 14, 8);
         break;
@@ -2105,19 +2203,12 @@ static void ui_draw(uint32_t now)
             } else if (i == 1u) {
                 ui_plate(1, "DO", 255, now, 1);
                 fb_text_c(6 + 58 + 27, 156 + 31, UI_SAVE_ACT[ui.act], C_INK);
-            } else if (i == 2u) {                                       /* the converter's rate, as measured against the crystal */
-                uint32_t r = sk_rate_mhz;
-                char *q = b;
-                ui_plate(2, "CLOCK", 255, now, 0);
-                if (r) {
-                    q = ui_num(q, (int)(r / 1000u));
-                    fb_text_c(6 + 2 * 58 + 27, 156 + 27, b, C_INK);
-                    q = ui_str(b, ".");
-                    q = ui_num(q, (int)(r % 1000u / 100u));
-                    ui_str(q, " HZ");
-                    fb_micro_c(6 + 2 * 58 + 27, 156 + 44, b, C_S4, 1);
-                } else
-                    fb_micro_c(6 + 2 * 58 + 27, 156 + 34, "MEASURING", C_S3, 0);
+            } else if (i == 2u) {                                       /* the keys: sounding here, or silent (the USB host only) */
+                ui_ov_v = ui.silent;
+                ui_ov_m = 1;
+                ui_plate(2, "KEYS", 255, now, 0);
+                ui_ov_m = 0;
+                fb_text_c(6 + 2 * 58 + 27, 156 + 31, ui.silent ? "SILENT" : "SOUND", ui.silent ? C_R4 : C_INK);
             } else {
                 int pct = sk_batt ? ui_clamp(((int)sk_batt - 511) * 100 / (651 - 511), 0, 100) : 0;
                 char *q = ui_num(b, pct);

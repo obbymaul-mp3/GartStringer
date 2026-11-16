@@ -38,9 +38,9 @@ enum {
 };
 #define FB_NCOL 46u
 
-#define FB_NTHEME 12
-/* twelve looks of one palette, three for each world (the three are one set of colours: a world is one look). Each world is black, a
- * chrome of its own (the S run: lilac, gold, gunmetal, ice) and one signal colour (the O run: pink, orange, acid green, cyan). The
+#define FB_NTHEME 18
+/* eighteen looks of one palette, three for each world (the three are one set of colours: a world is one look). Each world is black, a
+ * chrome of its own (the S run: lilac, gold, gunmetal, ice, pearl, black steel) and one signal colour (the O run: pink, orange, acid green, cyan, mint, red). The
  * reds and the battery's colours are the same in all of them. The table, and the chrome emblems, come from tools/gen_look.py. */
 #include "gs_art.h"
 static uint8_t fb[FB_W * FB_H] SK_POOL;

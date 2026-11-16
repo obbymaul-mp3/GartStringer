@@ -30,6 +30,8 @@ WORLDS = [
     ('HOUSE',  '#FF7A1C', '#FFC480', '#3C2010', '#C68C58', '#FFEBD2', '#40200A', '#FFF0DE'),
     ('TECHNO', '#96FF28', '#CEFF96', '#161E1A', '#7C948A', '#E8F2EC', '#0E3418', '#E8F8EC'),
     ('GARAGE', '#3CC8FF', '#A4E8FF', '#12203E', '#6C90CA', '#DCEEFF', '#0C2458', '#E4F2FF'),
+    ('AMBIENT', '#46F0CC', '#A8FFEA', '#10282A', '#6CA8A2', '#E2FFF8', '#083A36', '#E6FFF8'),
+    ('BASS',   '#FF2A3C', '#FF8E96', '#1C1418', '#8C7A84', '#F4E8EC', '#480810', '#FFE8EA'),
 ]
 def palette(w):
     _, acc, accl, low, mid, sky, back, ink = w
@@ -106,6 +108,23 @@ def m_moon(k, cx=120, cy=120):                    # garage: a crescent moon and 
     st = star(cx + 24 * k, cy - 10 * k, 17 * k, 34 * k) | star(cx + 24 * k, cy - 10 * k, 34 * k, 10 * k) | circ(cx + 24 * k, cy - 10 * k, 4.5 * k)
     a = over(a, chrome(st, max(1.8, 4 * k), 0.7, 0.3))
     return over(a, chrome(star(cx + 56 * k, cy + 34 * k, 7 * k, 14 * k) | star(cx + 56 * k, cy + 34 * k, 14 * k, 4.5 * k), max(1.2, 2 * k), 0.7, 0.3))
+def m_fly(k, cx=120, cy=120):                     # ambient: a butterfly
+    px = np.abs(X - cx) / k; py = (Y - cy) / k
+    def lobe(ox, oy, rx, ry, deg):
+        a = np.radians(deg); u = (px - ox) * np.cos(a) + (py - oy) * np.sin(a); v = -(px - ox) * np.sin(a) + (py - oy) * np.cos(a)
+        return (u / rx) ** 2 + (v / ry) ** 2 <= 1
+    wings = (lobe(40, -24, 44, 27, -32) | lobe(28, 30, 28, 21, 38)) & (px > 3)
+    a = over(EMPTY, chrome(wings, max(2.4, 9 * k), 0.62, 0.4))
+    body = ((px / 5.5) ** 2 + ((py - 2) / 40) ** 2 <= 1) | (np.hypot(px, py + 44) <= 7)
+    return over(a, chrome(body, max(1.6, 3.6 * k), 0.7, 0.3))
+def m_bolt(k, cx=120, cy=120):                    # bass: a bolt through a broken ring
+    r = np.hypot(X - cx, Y - cy); ang = np.arctan2(Y - cy, X - cx)
+    gap = (np.abs(np.abs(ang + 0.95) ) < 0.42) | (np.abs(ang - 2.19) < 0.42)
+    a = over(EMPTY, chrome((r <= 70 * k) & (r >= 70 * k - max(2.6, 7 * k)) & ~gap, max(1.3, 3.2 * k), 0.6, 0.45))
+    pts = [(0.30, -1.22), (-0.62, 0.10), (-0.10, 0.10), (-0.36, 1.22), (0.62, -0.26), (0.10, -0.26), (0.62, -1.22)]
+    im = Image.new('L', (H, H), 0)
+    ImageDraw.Draw(im).polygon([((cx + x * 56 * k) * S, (cy + y * 56 * k) * S) for x, y in pts], fill=255)
+    return over(a, chrome(np.asarray(im) > 127, max(2.4, 8 * k), 0.66, 0.42))
 def plate():                                      # the name, cut into a bar of chrome
     px = np.abs(X - 120); py = np.abs(Y - 120)
     a = chrome((px <= 98) & (py <= 14) & ((px + py) <= 104), 5, 0.7, 0.3)
@@ -134,7 +153,7 @@ def rle(a):
         out += [j - i, int(flat[i])]; i = j
     return out
 
-ART = [('STAR', m_star), ('HEART', m_heart), ('PLANET', m_planet), ('MOON', m_moon)]
+ART = [('STAR', m_star), ('HEART', m_heart), ('PLANET', m_planet), ('MOON', m_moon), ('FLY', m_fly), ('BOLT', m_bolt)]
 def build():
     pics = []
     for name, fn in ART:
@@ -146,7 +165,7 @@ def build():
 def preview(pics, path):
     """the pictures in each world's chrome, to look at"""
     CHR = [24, 18, 18, 17, 17, 16, 15, 1, 24, 18, 17, 16, 15, 14, 13, 12]
-    sheet = Image.new('RGB', (4 * 240, 240 + 90 + 40), (0, 0, 0))
+    sheet = Image.new('RGB', (len(WORLDS) * 240, 240 + 90 + 40), (0, 0, 0))
     for wi, w in enumerate(WORLDS):
         pal = palette(w)
         def paint(a, ox, oy):
@@ -156,7 +175,7 @@ def preview(pics, path):
                     v = a[y, x]
                     if v == 16: continue
                     sheet.putpixel((ox + x, oy + y), pal[CHR[v]] if v < 16 else pal[1] if v == 17 else pal[1])
-        big = pics[wi * 2][1]; sm = pics[wi * 2 + 1][1]; pl = pics[8][1]
+        big = pics[wi * 2][1]; sm = pics[wi * 2 + 1][1]; pl = pics[-1][1]
         paint(big, wi * 240 + 120 - big.shape[1] // 2, 110 - big.shape[0] // 2)
         paint(sm, wi * 240 + 120 - sm.shape[1] // 2, 280 - sm.shape[0] // 2)
         paint(pl, wi * 240 + 120 - pl.shape[1] // 2, 335)
@@ -186,7 +205,7 @@ if __name__ == '__main__':
         for i in range(0, len(d), 32):
             o.append('    ' + ', '.join(map(str, d[i:i + 32])) + ',')
         o.append('};')
-    o.append('static const uint8_t *const ART_WORLD[4] = {ART_STAR, ART_HEART, ART_PLANET, ART_MOON};')
-    o.append('static const uint8_t *const ART_WORLD_S[4] = {ART_STAR_S, ART_HEART_S, ART_PLANET_S, ART_MOON_S};')
+    o.append('static const uint8_t *const ART_WORLD[%d] = {%s};' % (len(ART), ', '.join('ART_' + n for n, _ in ART)))
+    o.append('static const uint8_t *const ART_WORLD_S[%d] = {%s};' % (len(ART), ', '.join('ART_%s_S' % n for n, _ in ART)))
     print('\n'.join(o))
     sys.stderr.write('art: %d bytes; %s\n' % (total, ', '.join('%s %dx%d' % (n, a.shape[1], a.shape[0]) for n, a in pics)))
