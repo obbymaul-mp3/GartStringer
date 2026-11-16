@@ -39,131 +39,10 @@ enum {
 #define FB_NCOL 46u
 
 #define FB_NTHEME 12
-/* twelve looks of one palette: three for each world (techno: a dark hall, greys and acid green; garage: the city at night, purple and gold). TRANCE is a cold void: blue-blacks, electric blue (violet on the pages that
- * run in time, rose on the glitch). HOUSE is dusk: plum-blacks, amber (mint, orchid). The glass greys, the reds and the battery's
- * colours are the same in all of them. */
-static const uint32_t SK_THEME[FB_NTHEME][46] = {
-    {   /* trance: blue (the instrument) */
-        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x0A1848, 0x102A78,
-        0x1840A8, 0x2060D8, 0x3888F8, 0x60B0FF, 0x98D4FF, 0xD0F0FF,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF0FAFF, 0x060818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
-        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
-        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* trance: violet (the gate, the arp, the sequence) */
-        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x1C0A48, 0x341478,
-        0x5420A8, 0x7C30D8, 0xA050F8, 0xC080FF, 0xDCB0FF, 0xF2DCFF,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF0FAFF, 0x060818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
-        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
-        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* trance: rose (the glitch) */
-        0x02040C, 0x070A18, 0x0D1226, 0x161D38, 0x30081C, 0x580C30,
-        0x881048, 0xB81860, 0xE82C78, 0xFF5C98, 0xFF98BC, 0xFFD0E0,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF0FAFF, 0x060818, 0x08102C, 0x0C1840, 0x122458, 0x183274,
-        0x204090, 0xE8F0FF, 0x8090B8, 0x0E1634, 0x40FFD0, 0x1C2C5C,
-        0x38D8FF, 0x34406A, 0x566890, 0x0A0F22, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* house: amber (the instrument) */
-        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x301004, 0x582008,
-        0x88340C, 0xB84C10, 0xE86C1C, 0xFF9438, 0xFFBC70, 0xFFE2B8,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
-        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
-        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* house: mint (the gate, the arp, the sequence) */
-        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x05281C, 0x084830,
-        0x0C6C48, 0x109464, 0x20BC84, 0x50DCA8, 0x90F0CC, 0xD0FFEC,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
-        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
-        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* house: orchid (the glitch) */
-        0x08040A, 0x120A12, 0x1C101C, 0x2C1A2A, 0x2C0830, 0x501058,
-        0x7C1888, 0xA824B4, 0xD03CD8, 0xEC6CEC, 0xF8A4F8, 0xFFD8FF,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF6E0, 0x140810, 0x200C18, 0x341224, 0x4C1A2E, 0x682438,
-        0x883040, 0xFFF0E4, 0xB89C94, 0x28121E, 0x40FFD0, 0x4A2030,
-        0xFFB860, 0x5A3C48, 0x86606A, 0x160C14, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* techno: acid green (the instrument) */
-        0x060606, 0x0B0C0B, 0x131513, 0x1E211E, 0x0C1C04, 0x183408,
-        0x285410, 0x3C7C14, 0x58A81C, 0x80D828, 0xB0F860, 0xDCFFB0,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF4FFE8, 0x060806, 0x0A0E0A, 0x0E140E, 0x141C14, 0x1C281C,
-        0x263626, 0xE8F0E4, 0x8C9888, 0x121812, 0x40FFD0, 0x243024,
-        0xB0F860, 0x3C443C, 0x5C685C, 0x0A0C0A, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* techno: steel (the gate, the arp, the sequence) */
-        0x060606, 0x0B0C0B, 0x131513, 0x1E211E, 0x101418, 0x20282E,
-        0x34404A, 0x4C5C6A, 0x6C8090, 0x94A8B8, 0xC0D0DC, 0xECF4F8,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF4FFE8, 0x060806, 0x0A0E0A, 0x0E140E, 0x141C14, 0x1C281C,
-        0x263626, 0xE8F0E4, 0x8C9888, 0x121812, 0x40FFD0, 0x243024,
-        0xB0F860, 0x3C443C, 0x5C685C, 0x0A0C0A, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* techno: red (the glitch) */
-        0x060606, 0x0B0C0B, 0x131513, 0x1E211E, 0x300808, 0x580C0C,
-        0x881010, 0xB81818, 0xE82C2C, 0xFF5C5C, 0xFF9898, 0xFFD0D0,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xF4FFE8, 0x060806, 0x0A0E0A, 0x0E140E, 0x141C14, 0x1C281C,
-        0x263626, 0xE8F0E4, 0x8C9888, 0x121812, 0x40FFD0, 0x243024,
-        0xB0F860, 0x3C443C, 0x5C685C, 0x0A0C0A, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* garage: gold (the instrument) */
-        0x06040C, 0x0C0818, 0x140E26, 0x20183A, 0x2C1C04, 0x503408,
-        0x7C540C, 0xA87810, 0xD8A018, 0xFFC830, 0xFFDC70, 0xFFF0B8,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF8E0, 0x0C0618, 0x140A28, 0x1E0E3C, 0x2A1452, 0x381A6A,
-        0x482284, 0xF4ECFF, 0xA090C0, 0x1A1030, 0x40FFD0, 0x30205A,
-        0xFFC830, 0x443A66, 0x665C8C, 0x0E0A1C, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* garage: pink (the gate, the arp, the sequence) */
-        0x06040C, 0x0C0818, 0x140E26, 0x20183A, 0x30081C, 0x580C34,
-        0x881050, 0xB8186C, 0xE82C8C, 0xFF5CAC, 0xFF98C8, 0xFFD0E4,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF8E0, 0x0C0618, 0x140A28, 0x1E0E3C, 0x2A1452, 0x381A6A,
-        0x482284, 0xF4ECFF, 0xA090C0, 0x1A1030, 0x40FFD0, 0x30205A,
-        0xFFC830, 0x443A66, 0x665C8C, 0x0E0A1C, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-    {   /* garage: ice (the glitch) */
-        0x06040C, 0x0C0818, 0x140E26, 0x20183A, 0x05202C, 0x083C50,
-        0x0C5C78, 0x1080A0, 0x18A8CC, 0x40CCEC, 0x88E4F8, 0xC8F4FF,
-        0x1A2238, 0x2A3552, 0x3E4C70, 0x566890, 0x7C8EB4, 0xA8B8D8,
-        0xDCE6F8, 0x380A14, 0x701024, 0xA81834, 0xE02848, 0xFF5870,
-        0xFFF8E0, 0x0C0618, 0x140A28, 0x1E0E3C, 0x2A1452, 0x381A6A,
-        0x482284, 0xF4ECFF, 0xA090C0, 0x1A1030, 0x40FFD0, 0x30205A,
-        0xFFC830, 0x443A66, 0x665C8C, 0x0E0A1C, 0x30E060, 0xA0E030,
-        0xF0E030, 0xFFB020, 0xFF6A18, 0xFF2030,
-    },
-};
+/* twelve looks of one palette, three for each world (the three are one set of colours: a world is one look). Each world is black, a
+ * chrome of its own (the S run: lilac, gold, gunmetal, ice) and one signal colour (the O run: pink, orange, acid green, cyan). The
+ * reds and the battery's colours are the same in all of them. The table, and the chrome emblems, come from tools/gen_look.py. */
+#include "gs_art.h"
 static uint8_t fb[FB_W * FB_H] SK_POOL;
 static uint16_t fb_lut[FB_PAL];                  /* index -> RGB565, byte-swapped as the panel takes it */
 static uint32_t fb_hash[FB_TX * FB_TY];
@@ -344,6 +223,78 @@ static void fb_disc(int cx, int cy, int r, uint8_t c)
 }
 
 /* ------------------------------------------------------------------ text --- */
+/* Chrome. A surface is a run of sixteen levels: a pale sky at the top (0), a thin dark horizon (7), then a bright ground that darkens
+ * to the bottom (15). FB_CHR turns a level into the world's chrome. */
+static const uint8_t FB_CHR[16] = {C_HOT, C_S6, C_S6, C_S5, C_S5, C_S4, C_S3, C_K1, C_HOT, C_S6, C_S5, C_S4, C_S3, C_S2, C_S1, C_S0};
+/* a bar of chrome: its rows run the levels lo to hi from top to bottom */
+static void fb_chrome(int x, int y, int w, int h, int lo, int hi)
+{
+    int r;
+    for (r = 0; r < h; r++)
+        fb_hline(x, y + r, w, FB_CHR[(lo + (hi - lo) * r / (h > 1 ? h - 1 : 1)) & 15]);
+}
+/* a small plate of chrome with its corners off: a key, a tile, a tab */
+static void fb_chrome_tile(int x, int y, int w, int h)
+{
+    fb_chrome(x, y, w, h, 1, 13);
+    fb_pset(x, y, C_BG); fb_pset(x + w - 1, y, C_BG); fb_pset(x, y + h - 1, C_BG); fb_pset(x + w - 1, y + h - 1, C_BG);
+}
+/* a picture from gs_art.h, centred on (cx, cy): runs of chrome levels (16 nothing, 17 the rim, 18 ink) */
+static void fb_art(const uint8_t *a, int cx, int cy)
+{
+    int w = a[0], h = a[1], x0 = cx - w / 2, y0 = cy - h / 2, x = 0, y = 0;
+    const uint8_t *p = a + 2;
+    while (y < h) {
+        int n = *p++, v = *p++;
+        while (n > 0) {
+            int run = n < w - x ? n : w - x;
+            if (v != 16)
+                fb_hline(x0 + x, y0 + y, run, v < 16 ? FB_CHR[v] : C_K1);
+            x += run;
+            n -= run;
+            if (x >= w) {
+                x = 0;
+                y++;
+            }
+        }
+    }
+}
+/* a circle's outline */
+static void fb_ring(int cx, int cy, int r, uint8_t c)
+{
+    int x = r, y = 0, e = 1 - r;
+    while (x >= y) {
+        fb_pset(cx + x, cy + y, c); fb_pset(cx - x, cy + y, c); fb_pset(cx + x, cy - y, c); fb_pset(cx - x, cy - y, c);
+        fb_pset(cx + y, cy + x, c); fb_pset(cx - y, cy + x, c); fb_pset(cx + y, cy - x, c); fb_pset(cx - y, cy - x, c);
+        y++;
+        if (e < 0)
+            e += 2 * y + 1;
+        else {
+            x--;
+            e += 2 * (y - x) + 1;
+        }
+    }
+}
+/* a glint: a four-point star, r pixels to each point */
+static void fb_spark(int x, int y, int r, uint8_t c)
+{
+    int k = r / 3, i;
+    fb_hline(x - r, y, 2 * r + 1, c);
+    fb_vline(x, y - r, 2 * r + 1, c);
+    for (i = 1; i <= k; i++) {
+        fb_hline(x - (k - i), y - i, 2 * (k - i) + 1, c);
+        fb_hline(x - (k - i), y + i, 2 * (k - i) + 1, c);
+    }
+}
+/* the corners of a frame: a bracket on each */
+static void fb_brackets(int x, int y, int w, int h, int l, uint8_t c)
+{
+    fb_hline(x, y, l, c); fb_vline(x, y, l, c);
+    fb_hline(x + w - l, y, l, c); fb_vline(x + w - 1, y, l, c);
+    fb_hline(x, y + h - 1, l, c); fb_vline(x, y + h - l, l, c);
+    fb_hline(x + w - l, y + h - 1, l, c); fb_vline(x + w - 1, y + h - l, l, c);
+}
+
 static int fb_glyph(const sk_font_t *f, uint8_t ch, int x, int y, uint8_t c)
 {
     const sk_glyph_t *g = &f->g[ch];
@@ -448,6 +399,32 @@ static int fb_text_halo(int x, int y, const char *s, uint8_t c, uint8_t halo)
 }
 
 /* the small face: 3 x 5 capitals and digits, for the labels (lower case is drawn as capitals; what it has no glyph for is a gap) */
+/* letters in chrome: the text is drawn a row at a time, each row in its level (h: the letters' height in rows) */
+static void fb_text_chrome(int x, int y, const char *s, int h)
+{
+    int r, x0 = fb_cx0, y0 = fb_cy0, x1 = fb_cx1, y1 = fb_cy1;
+    fb_text(x + 1, y + 1, s, C_BG);
+    for (r = 0; r < h; r++) {
+        if (y + r < y0 || y + r >= y1)
+            continue;
+        fb_clip(x0, y + r, x1, y + r + 1);
+        fb_text(x, y, s, FB_CHR[1 + r * 13 / (h - 1)]);
+    }
+    fb_clip(x0, y0, x1, y1);
+}
+static void fb_text2_chrome(int cx, int y, const char *s, int track, int h)
+{
+    int r, x0 = fb_cx0, y0 = fb_cy0, x1 = fb_cx1, y1 = fb_cy1;
+    fb_text2_c(cx + 2, y + 2, s, C_BG, track);
+    for (r = 0; r < h; r++) {
+        if (y + r < y0 || y + r >= y1)
+            continue;
+        fb_clip(x0, y + r, x1, y + r + 1);
+        fb_text2_c(cx, y, s, FB_CHR[1 + r * 13 / (h - 1)], track);
+    }
+    fb_clip(x0, y0, x1, y1);
+}
+
 static int fb_micro_adv(uint8_t ch)
 {
     if (ch >= 'a' && ch <= 'z' && !SK_MICRO.g[ch].adv)

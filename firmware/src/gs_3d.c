@@ -67,6 +67,19 @@ static uint32_t g3_isqrt(uint32_t v)
     return r;
 }
 
+/* Chrome (ramp G3_CHR): a mesh is lit as one piece of metal. A row of the screen takes its level from how far down the mesh it is,
+ * so a dark horizon runs through all its faces at one height, and each face is moved up or down the levels by how it turns to the
+ * light. g3_tri's colour is then that move (0..15), and g3_cy0, g3_ch the mesh's top row and height on the screen. */
+#define G3_CHR 254
+static int g3_chr, g3_cy0, g3_ch;
+static inline uint8_t g3_col(int y, uint8_t c)
+{
+    int t;
+    if (!g3_chr)
+        return c;
+    t = (y - g3_cy0) * 11 / g3_ch + (int)c - 4;
+    return FB_CHR[t < 0 ? 0 : t > 15 ? 15 : t];
+}
 /* a flat triangle: scanlines between its edges */
 static void g3_tri(int x0, int y0, int x1, int y1, int x2, int y2, uint8_t c)
 {
@@ -79,7 +92,7 @@ static void g3_tri(int x0, int y0, int x1, int y1, int x2, int y2, uint8_t c)
         int l = x0 < x1 ? x0 : x1, r = x0 > x1 ? x0 : x1;
         if (x2 < l) l = x2;
         if (x2 > r) r = x2;
-        fb_hline(l, y0, r - l + 1, c);
+        fb_hline(l, y0, r - l + 1, g3_col(y0, c));
         return;
     }
     s02 = ((x2 - x0) * 65536) / (y2 - y0);
@@ -99,7 +112,7 @@ static void g3_tri(int x0, int y0, int x1, int y1, int x2, int y2, uint8_t c)
         l = (int)(xa >> 16);
         r = (int)(xb >> 16);
         if (l > r) { t = l; l = r; r = t; }
-        fb_hline(l, y, r - l + 1, c);
+        fb_hline(l, y, r - l + 1, g3_col(y, c));
     }
 }
 
@@ -119,6 +132,12 @@ static void g3_draw(const g3_mesh_t *m, int ox, int oy, int oz, int sx, int sy, 
     int16_t px[12], py[12];
     int i, k, nf = 0, cyw = g3_cos(ay), syw = g3_sin(ay), cxw = g3_cos(ax), sxw = g3_sin(ax), czw = g3_cos(az), szw = g3_sin(az);
     int32_t ccx, ccy, ccz;
+    int chr = ramp == G3_CHR, ymin = 32767, ymax = -32768;
+    if (chr) {
+        rlen = 8;
+        if (edge != 255 && edge != C_HOT)
+            edge = C_K1;                                    /* (chrome is edged in the dark, like the emblems; what is lit keeps its white) */
+    }
     for (i = 0; i < m->nv; i++) {
         int32_t x = m->v[i][0] * sx / 16, y = m->v[i][1] * sy / 16, z = m->v[i][2] * sz / 16, x1, z1, y2, z2, x3, y3, yy, zz;
         x1 = (x * cyw + z * syw) >> 15;
@@ -139,6 +158,8 @@ static void g3_draw(const g3_mesh_t *m, int ox, int oy, int oz, int sx, int sy, 
         vz[i] = zz;
         px[i] = (int16_t)(g3_cx + x3 * g3_f / zz);
         py[i] = (int16_t)(g3_cy - yy * g3_f / zz);
+        if (py[i] < ymin) ymin = py[i];
+        if (py[i] > ymax) ymax = py[i];
     }
     ccx = ox;
     ccy = (oy * g3_cp + oz * g3_sp) >> 15;
@@ -170,7 +191,7 @@ static void g3_draw(const g3_mesh_t *m, int ox, int oy, int oz, int sx, int sy, 
         g3_fs[nf].z = vz[a] + vz[b] + vz[c];
         g3_fs[nf].x[0] = px[a]; g3_fs[nf].x[1] = px[b]; g3_fs[nf].x[2] = px[c];
         g3_fs[nf].y[0] = py[a]; g3_fs[nf].y[1] = py[b]; g3_fs[nf].y[2] = py[c];
-        g3_fs[nf].c = (uint8_t)(ramp + idx);
+        g3_fs[nf].c = chr ? (uint8_t)(7 - idx) : (uint8_t)(ramp + idx);      /* (chrome: a face in the light sits higher in the levels) */
         g3_fs[nf].e = m->f[k][3];
         nf++;
     }
@@ -181,6 +202,9 @@ static void g3_draw(const g3_mesh_t *m, int ox, int oy, int oz, int sx, int sy, 
             g3_fs[j] = g3_fs[j - 1];
         g3_fs[j] = t;
     }
+    g3_chr = chr;
+    g3_cy0 = ymin;
+    g3_ch = ymax - ymin + 1;
     for (i = 0; i < nf; i++) {
         if (ramp != 255)
             g3_tri(g3_fs[i].x[0], g3_fs[i].y[0], g3_fs[i].x[1], g3_fs[i].y[1], g3_fs[i].x[2], g3_fs[i].y[2], g3_fs[i].c);
@@ -190,4 +214,5 @@ static void g3_draw(const g3_mesh_t *m, int ox, int oy, int oz, int sx, int sy, 
             if (g3_fs[i].e & 4) fb_line(g3_fs[i].x[2], g3_fs[i].y[2], g3_fs[i].x[0], g3_fs[i].y[0], edge);
         }
     }
+    g3_chr = 0;
 }

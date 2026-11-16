@@ -2,10 +2,12 @@
 
 A synthesizer firmware for the M-VAVE FM-1 (JieLi AC791N) in four worlds you step between: TRANCE (supersaw leads from euphoric to haunting, rolling bass, a gate, a glitch engine), HOUSE (hazy FM keys, organs, donk bass, one-key chords, a sidechain-style pump), TECHNO (acid lines, metal, drones, noise) and GARAGE (reese and organ basses, bell stabs, the shuffle). No drums: it is made to sit beside your drum machine and to keep time with it, on its own clock or following MIDI clock. The screen is a small 3D world in pixels, with a scene and colours for each world.
 
+![The four worlds](docs/images/worlds.png)
+
 ![Home](docs/images/home.png) ![House](docs/images/house.png) ![Techno](docs/images/techno.png) ![Garage](docs/images/garage.png) ![Effects](docs/images/edit.png) ![Save](docs/images/save.png) ![Glitch](docs/images/glitch.png) ![Perform](docs/images/perform.png) ![Step](docs/images/step.png)
 
 ## What it does
-- **Four worlds:** 40 TRANCE patches, then 24 each of HOUSE, TECHNO and GARAGE. PRESETS runs through all of them; ALGORITHM on the home page steps to the next world (to the patch you last used there). The world sets the look; the sequencer and the save slots are shared.
+- **Four worlds:** 40 TRANCE patches, then 24 each of HOUSE, TECHNO and GARAGE. PRESETS runs through all of them; ALGORITHM on the home page steps to the next world (to the patch you last used there). Each world has a chrome emblem and a signal colour of its own (a star in pink, a heart in orange, a planet in acid green, a moon in ice blue), shown as a title when you enter it; the world sets the look; the sequencer and the save slots are shared.
 - **Oscillators:** supersaw (seven detuned saws), hyper sync, PWM stack, roll bass, feedback, FM keys, drawbar organ, donk (an FM bass), metal (inharmonic FM), noise, reese, plus a sub. Six voices.
 - **Filter:** state-variable, LP12 / LP24 / band / high / vowel. Two ADSR envelopes, one LFO (pitch, filter, amp, colour, detune), glide, poly / mono / legato, hold.
 - **Step sequencer:** up to 128 steps in eight patterns (A–H). Press SEQ, then REC: a one-bar count-in with the metronome, and then you play and the notes drop onto the line you can see running. PLAY runs and stops it. ALGORITHM switches pattern (it waits for the end of the pass), and every knob and parameter stays live while it plays. SAVE keeps eighteen slots, each with all eight patterns and every sound setting. With the chords on, each step is a root and plays its chord, in whatever voicing, scale and key the chord page has now. No drums, only notes and a click.

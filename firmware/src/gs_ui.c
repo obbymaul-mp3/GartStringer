@@ -83,6 +83,7 @@ static struct {
     char toast[20];
     uint8_t intro;
     uint32_t intro_t;
+    uint32_t spl_t;                      /* a world was just entered: its title shows for a moment (0: not) */
     uint8_t flash;                       /* a patch change: counts down */
     uint8_t wlast[GS_NWORLD];            /* the patch last used in each world (ALGORITHM on the home page steps through the worlds) */
     uint8_t rec_seen;                    /* gs.rec_n as last seen: a change flashes the step written */
@@ -498,6 +499,8 @@ static int32_t ui_enc(uint32_t role)
     int32_t d = sk_in_enc(role);
     if (d && ui.intro)
         ui.intro = 0, gs_intro_n = 0;
+    if (d && role != SE_ALGO)
+        ui.spl_t = 0;                                               /* (any other knob: the world's title steps aside) */
     return d;
 }
 
@@ -521,6 +524,8 @@ static void ui_input(uint32_t now)
     ui.held = held;
     if (ui.intro && (pr || kp))
         ui.intro = 0, gs_intro_n = 0;
+    if (pr || kp)
+        ui.spl_t = 0;
     /* pages */
     if (pr & (1u << SB_HOME)) {                                     /* HOME, and again: the chords */
         ui.page = ui.page == PG_HOME ? PG_CHORD : ui.page == PG_CHORD ? PG_PERF : PG_HOME;      /* HOME, the chords, the performance page */
@@ -687,6 +692,7 @@ static void ui_input(uint32_t now)
         int w = ui_world(), to = (w + (d > 0 ? 1 : GS_NWORLD - 1)) % GS_NWORLD;   /* the next world round, or the one before */
         ui.wlast[w] = gs.preset;
         ui_load_patch(ui.wlast[to], now);
+        ui.spl_t = now ? now : 1u;                                  /* the world's title, for a moment */
         ui_toast(UI_WORLD[to], now);
         ui.k_t[0] = now;
     } else if (d && UI_PG[ui.page].algo != 255u) {
@@ -892,34 +898,30 @@ static void ui_input(uint32_t now)
 #define VH 90
 
 /* a card of dark glass: a soft-cornered panel with a thin edge, a pixel of light along its top */
+/* a panel: black, with a rim. The rim of a panel at rest (edge C_S0) is chrome, bright at the top and dark at the foot with the
+ * horizon across its sides; any other edge is that one colour (a panel that is lit, or a warning). */
 static void ui_glass(int x, int y, int w, int h, uint8_t edge)
 {
-    fb_rbox(x, y, w, h, 3, C_K1);
-    fb_hline(x + 3, y, w - 6, edge);
-    fb_hline(x + 3, y + h - 1, w - 6, edge);
-    fb_vline(x, y + 3, h - 6, edge);
-    fb_vline(x + w - 1, y + 3, h - 6, edge);
-    fb_pset(x + 1, y + 2, edge); fb_pset(x + 2, y + 1, edge);
-    fb_pset(x + w - 2, y + 2, edge); fb_pset(x + w - 3, y + 1, edge);
-    fb_pset(x + 1, y + h - 3, edge); fb_pset(x + 2, y + h - 2, edge);
-    fb_pset(x + w - 2, y + h - 3, edge); fb_pset(x + w - 3, y + h - 2, edge);
-    fb_hline(x + 4, y + 1, w - 8, C_K2);
+    int r, chr = edge == C_S0;
+    uint8_t top = chr ? C_S6 : edge, bot = chr ? C_S1 : edge;
+    fb_rbox(x, y, w, h, 3, C_BG);
+    fb_hline(x + 3, y, w - 6, top);
+    fb_hline(x + 3, y + h - 1, w - 6, bot);
+    for (r = 3; r < h - 3; r++) {
+        uint8_t c = chr ? FB_CHR[1 + r * 13 / (h - 1)] : edge;
+        fb_pset(x, y + r, c);
+        fb_pset(x + w - 1, y + r, c);
+    }
+    fb_pset(x + 1, y + 2, top); fb_pset(x + 2, y + 1, top);
+    fb_pset(x + w - 2, y + 2, top); fb_pset(x + w - 3, y + 1, top);
+    fb_pset(x + 1, y + h - 3, bot); fb_pset(x + 2, y + h - 2, bot);
+    fb_pset(x + w - 2, y + h - 3, bot); fb_pset(x + w - 3, y + h - 2, bot);
 }
 
-/* the window's frame: a hairline, and a bright bracket on each corner */
+/* the window's frame: a bracket on each corner */
 static void ui_window(void)
 {
-    int x = VX - 3, y = VY - 3, w = VW + 6, h = VH + 6, k;
-    fb_frame(x, y, w, h, C_S0);
-    fb_frame(x + 1, y + 1, w - 2, h - 2, C_K2);
-    for (k = 0; k < 2; k++) {
-        int xx = k ? x + w - 9 : x, cx = k ? x + w - 1 : x;
-        fb_hline(xx, y, 9, C_O5);
-        fb_hline(xx, y + h - 1, 9, C_O5);
-        fb_vline(cx, y, 9, C_O5);
-        fb_vline(cx, y + h - 9, 9, C_O5);
-    }
-    fb_pset(x, y, C_HOT); fb_pset(x + w - 1, y, C_HOT); fb_pset(x, y + h - 1, C_HOT); fb_pset(x + w - 1, y + h - 1, C_HOT);
+    fb_brackets(VX - 3, VY - 3, VW + 6, VH + 6, 9, C_O6);
 }
 
 #include "gs_3d.c"
@@ -927,74 +929,39 @@ static void ui_window(void)
 static int ui_lv(uint32_t idx) { return gs.p[idx]; }
 
 static uint32_t ui_hash(uint32_t x);
-/* the backdrop of the window. TRANCE: a void with a few stars, a line of far towers of light on the horizon and a floor of lines
- * that run toward you at the tempo. HOUSE: dusk, a low sun cut by slats, the same floor in its colours. */
+/* the backdrop of the window, the same in every world but for its colours: a glow in rings round the middle and a fan of thin lines
+ * out of it. Under what stands up (the towers, the bars, the steps) there is a floor as well: a horizon, and lines that run toward
+ * you at the tempo. */
 static void vz_back(uint32_t now)
 {
-    int i, hy = VY + 32, cx = VX + VW / 2, fh = VY + VH - hy, world = ui_world(), house = world == 1;
+    int i, hy = VY + 32, cx = VX + VW / 2, cy = VY + VH / 2, fh = VY + VH - hy;
+    int flat = ui.page == PG_HOME || ui.page == PG_FLT || ui.page == PG_ENV || ui.page == PG_ENV2 || ui.page == PG_LFO ||
+               ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD;
     uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
+    fb_clip(VX, VY, VX + VW, VY + VH);
     fb_rect(VX, VY, VW, VH, C_BG);
-    for (i = 0; i < 6; i++)                                                  /* the sky gathers light toward the horizon */
-        fb_rect(VX, hy - 4 * (6 - i), VW, 4, (uint8_t)(C_B0 + i));
-    if (house) {
-        int k;
-        for (k = 0; k < 23; k++) {                                           /* the sun: a half disc, brighter to its top, cut by slats near the horizon */
-            int hw = (int)g3_isqrt((uint32_t)(23 * 23 - k * k));
-            if (k < 13 && k % 4 == 3)
-                continue;
-            fb_hline(cx - hw, hy - 1 - k, 2 * hw, (uint8_t)(C_O2 + k / 5));
-        }
-    } else if (world == 2) {                                                 /* techno: a hall of strip lights running away either side, one of them lit on each beat */
-        fb_rect(VX, VY, VW, hy - VY, C_BG);
-        for (i = 1; i <= 7; i++) {
-            int dx = 8 + i * i * 2, top = hy - 4 - i * 3, lit = ((gs.beat >> 2) % 7u) == (uint32_t)(7 - i);
-            uint8_t c = lit ? C_HOT : (uint8_t)(i > 4 ? C_O2 : C_O1);
-            fb_vline(cx - dx, top, hy - top, c);
-            fb_vline(cx + dx, top, hy - top, c);
-            if (lit) {
-                fb_vline(cx - dx - 1, top, hy - top, C_O4);
-                fb_vline(cx + dx + 1, top, hy - top, C_O4);
-            }
-        }
-        fb_hline(VX, VY + 8, VW, C_B2);                                      /* the roof's edge */
-    } else if (world == 3) {                                                 /* garage: a city at night, windows lit, a moon */
-        fb_disc(VX + VW / 2 + 34, VY + 11, 7, C_S5);
-        fb_disc(VX + VW / 2 + 37, VY + 9, 6, C_B2);
-        for (i = 0; i < 18; i++) {
-            uint32_t h = ui_hash((uint32_t)i * 9176u + 11u);
-            int x = VX + 2 + i * 12 + (int)(h & 3u), bw = 8 + (int)((h >> 3) & 3u), bh = 6 + (int)((h >> 6) % 18u), yy, xx;
-            fb_rect(x, hy - bh, bw, bh, C_K1);
-            fb_hline(x, hy - bh, bw, C_B4);
-            for (yy = hy - bh + 3; yy < hy - 2; yy += 4)
-                for (xx = x + 2; xx < x + bw - 1; xx += 3)
-                    if ((ui_hash((uint32_t)(xx * 31 + yy * 17)) & 3u) == 0u)
-                        fb_pset(xx, yy, ((ui_hash((uint32_t)(xx + yy * 7)) + (now >> 10)) & 15u) == 0u ? C_HOT : C_O5);
-        }
-    } else {
-        for (i = 0; i < 26; i++) {                                           /* stars: fixed, a few of them twinkling */
-            uint32_t h = ui_hash((uint32_t)i * 2654435761u + 17u);
-            int x = VX + (int)(h % (uint32_t)VW), y = VY + 1 + (int)((h >> 9) % 26u);
-            fb_pset(x, y, ((h >> 20) & 3u) == 0u && ((now >> 8) + i) % 5u == 0u ? C_HOT : ((h >> 16) & 1u) ? C_S3 : C_S1);
-        }
-        for (i = 0; i < 15; i++) {                                           /* the far towers */
-            uint32_t h = ui_hash((uint32_t)i * 40503u + 5u);
-            int x = VX + 6 + i * 15 + (int)(h & 3u), th = 3 + (int)((h >> 4) % 12u);
-            fb_vline(x, hy - th, th, C_B5);
-            fb_vline(x + 1, hy - th + 1, th - 1, C_B4);
-            if (((h >> 12) & 3u) == 0u)
-                fb_pset(x, hy - th, C_O5);
+    if (!flat)
+        cy = hy;
+    for (i = 0; i < 4; i++)
+        fb_disc(cx, cy, 100 - i * 23, (uint8_t)(C_B0 + i));
+    for (i = -7; i <= 7; i++) {
+        fb_line(cx, cy, cx + i * 38, VY - 1, C_GRID0);
+        if (flat)
+            fb_line(cx, cy, cx + i * 38, VY + VH, C_GRID0);
+    }
+    if (!flat) {
+        fb_rect(VX, hy, VW, fh, C_BG);
+        fb_hline(VX, hy, VW, C_O2);
+        fb_hline(cx - 40, hy, 80, C_O4);
+        for (i = -8; i <= 8; i++)
+            fb_line(cx, hy, cx + i * 34, VY + VH, C_GRID0);
+        for (i = 0; i < 8; i++) {
+            uint32_t u = ((uint32_t)i * 256u + scroll) & 2047u;
+            int y = hy + 1 + (int)((uint32_t)fh * ((u * u) >> 11) >> 11);
+            fb_hline(VX, y, VW, y > hy + fh / 2 ? C_GRID1 : C_GRID0);
         }
     }
-    fb_rect(VX, hy, VW, fh, C_BG);
-    fb_hline(VX, hy, VW, C_O3);
-    fb_hline(cx - 40, hy, 80, C_O5);
-    for (i = -8; i <= 8; i++)
-        fb_line(cx, hy, cx + i * 34, VY + VH, i == 0 ? C_GRID1 : C_GRID0);
-    for (i = 0; i < 8; i++) {
-        uint32_t u = ((uint32_t)i * 256u + scroll) & 2047u;
-        int y = hy + 1 + (int)((uint32_t)fh * ((u * u) >> 11) >> 11);
-        fb_hline(VX, y, VW, y > hy + fh / 2 ? C_O1 : C_GRID0);
-    }
+    fb_unclip();
 }
 
 static uint32_t ui_hash(uint32_t x)
@@ -1009,9 +976,12 @@ static uint32_t ui_hash(uint32_t x)
 /* a thick phosphor line: the core, and a dimmer pixel under it */
 static void vz_dot(int x, int y, uint8_t core, uint8_t glow)
 {
-    fb_pset(x, y, core);
-    fb_pset(x, y + 1, glow);
-    fb_pset(x, y - 1, glow);
+    (void)core;
+    (void)glow;
+    fb_pset(x, y - 1, C_S6);                                                  /* a tube of chrome: lit from above, dark under */
+    fb_pset(x, y, C_HOT);
+    fb_pset(x, y + 1, C_S4);
+    fb_pset(x, y + 2, C_S1);
 }
 
 /* the oscillator as towers on the floor: a tower to a saw (or pulse, or sine) of the patch's oscillator, each rising at its
@@ -1053,15 +1023,32 @@ static void vz_towers(uint32_t now)
         if (mode == 0 && j == 3)
             w = wpx * (70 + mix) / 120;
         if (mode == 5)                                                             /* FM keys: gems that ring */
-            g3_draw(&G3_OCT, (j - 2) * sp, h - 2, 0, 4, 7, 4, 0, (int)(now >> 3) + j * 120, 0, C_O0, 8, bias, C_O6);
+            g3_draw(&G3_OCT, (j - 2) * sp, h - 2, 0, 4, 7, 4, 0, (int)(now >> 3) + j * 120, 0, G3_CHR, 8, bias, C_O6);
         else if (mode == 8)                                                        /* metal: thin blades */
-            g3_draw(&G3_PYR, (j * 2 - 3) * sp / 2, h / 2, 0, 3, h / 4 + 1, 5, 0, (int)(now >> 3) + j * 200, 0, C_O0, 8, bias, C_HOT);
+            g3_draw(&G3_PYR, (j * 2 - 3) * sp / 2, h / 2, 0, 3, h / 4 + 1, 5, 0, (int)(now >> 3) + j * 200, 0, G3_CHR, 8, bias, C_HOT);
         else if (mode == 7)                                                        /* donk: three balls bouncing a ratio apart */
-            g3_draw(&G3_ICO, (j - 1) * sp, h + 6, 0, 6, 6 - (h < 12 ? (12 - h) / 3 : 0), 6, (int)(now >> 3), (int)(now >> 4) + j * 90, 0, C_O0, 8, bias, j == 1 ? C_HOT : C_O6);
+            g3_draw(&G3_ICO, (j - 1) * sp, h + 6, 0, 6, 6 - (h < 12 ? (12 - h) / 3 : 0), 6, (int)(now >> 3), (int)(now >> 4) + j * 90, 0, G3_CHR, 8, bias, j == 1 ? C_HOT : C_O6);
         else
             g3_draw(&G3_CUBE, (j - (n - 1) / 2) * sp + (n & 1 ? 0 : sp / 2), h / 2, 0, w / 4 + 1, h / 4 + 1, w / 4 + 1,
-                    0, mode == 6 ? 0 : (int)(now >> 4) + j * 90, 0, C_O0, 8, bias, mode == 0 && j == 3 ? C_HOT : C_O6);
+                    0, mode == 6 ? 0 : (int)(now >> 4) + j * 90, 0, G3_CHR, 8, bias, mode == 0 && j == 3 ? C_HOT : C_O6);
     }
+}
+
+/* the home page: the world's emblem, a glint on it that swells with the sound, and a glint either side for each voice that is sounding */
+static void vz_home(uint32_t now)
+{
+    static const int8_t GL[4][2] = {{0, 0}, {0, -1}, {0, -2}, {7, -3}}, VP[GS_NV][2] = {{-78, -14}, {78, 10}, {-56, 16}, {56, -18}, {-94, 8}, {94, -8}};
+    int w = ui_world() & 3, cx = VX + VW / 2, cy = VY + 40, i, lv = gs.level > 60 ? 5 : gs.level / 12;
+    fb_art(ART_WORLD_S[w], cx, cy);
+    fb_spark(cx + GL[w][0], cy + GL[w][1], 3 + lv, C_HOT);
+    for (i = 0; i < GS_NV; i++) {
+        int e = gs.v[i].on ? (int)(gs.v[i].ae >> 13) : 0;
+        if (e > 0)
+            fb_spark(cx + VP[i][0], cy + VP[i][1], 2 + (e > 5 ? 5 : e), i & 1 ? C_O6 : C_INK);
+        else
+            fb_pset(cx + VP[i][0], cy + VP[i][1], C_O3);
+    }
+    (void)now;
 }
 
 /* the gate's strip along the bottom of the window: sixteen cells, the open ones lit, the step the playhead is on bright */
@@ -1075,11 +1062,12 @@ static void vz_gate_strip(int y, int h)
         int x = VX + 4 + i * 13;
         if (!gs.p[P_GDEP])
             on = 1;
-        fb_rect(x, y, 11, h, on ? C_O2 : C_K2);
+        if (on)
+            fb_chrome_tile(x, y, 11, h);
+        else
+            fb_rect(x, y, 11, h, C_K3);
         if (i == (gs.gstep & 15))
-            fb_rect(x, y, 11, h, on ? C_HOT : C_S2);
-        else if (on)
-            fb_hline(x, y, 11, C_O5);
+            fb_rect(x + 1, y + 1, 9, h - 2, C_O5);
     }
 }
 
@@ -1125,14 +1113,13 @@ static void vz_filter(uint32_t now)
         if (py >= 0 && (y - py > 1 || py - y > 1)) {
             int lo = y < py ? y : py, hi = y < py ? py : y, k;
             for (k = lo; k <= hi; k++)
-                fb_pset(VX + x, k, C_O6);
+                fb_pset(VX + x, k, C_S5);
         }
-        fb_vline(VX + x, y, VY + VH - y, (x & 1) ? C_O1 : C_O2);
-        fb_pset(VX + x, y, C_HOT);
-        fb_pset(VX + x, y + 1, C_O5);
+        fb_vline(VX + x, y, VY + VH - y, (x & 1) ? C_O1 : C_O0);
+        vz_dot(VX + x, y, 0, 0);
         py = y;
     }
-    fb_vline(VX + cut * VW / 127, VY, VH, C_R3);
+    fb_vline(VX + cut * VW / 127, VY, VH, C_O5);
 }
 
 /* an envelope: attack, decay to the sustain, a hold, the release */
@@ -1152,9 +1139,8 @@ static void vz_env(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t now,
             int yy = ys[i] + (ys[i + 1] - ys[i]) * x / (dx ? dx : 1);
             if (i == 0)
                 yy = ys[0] + (ys[1] - ys[0]) * ((x * x) / (dx ? dx : 1)) / (dx ? dx : 1) ;
-            fb_vline(xs[i] + x, yy, bot - yy, ((xs[i] + x) & 1) ? C_O1 : C_O2);
-            fb_pset(xs[i] + x, yy, C_HOT);
-            fb_pset(xs[i] + x, yy + 1, C_O5);
+            fb_vline(xs[i] + x, yy, bot - yy, ((xs[i] + x) & 1) ? C_O1 : C_O0);
+            vz_dot(xs[i] + x, yy, 0, 0);
         }
     }
     fb_hline(xs[3], bot, 1, C_O5);
@@ -1163,7 +1149,7 @@ static void vz_env(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t now,
         if (gs.v[i].on)
             y = (int)((fenv ? gs.v[i].fe : gs.v[i].ae) >> 9) > y ? (int)((fenv ? gs.v[i].fe : gs.v[i].ae) >> 9) : y;
     y = y > 127 ? 127 : y;
-    fb_rect(VX + VW - 10, bot - (bot - top) * y / 127, 6, (bot - top) * y / 127, C_R3);
+    fb_rect(VX + VW - 10, bot - (bot - top) * y / 127, 6, (bot - top) * y / 127, C_O5);
     fb_frame(VX + VW - 11, top - 1, 8, bot - top + 2, C_S2);
     (void)now;
 }
@@ -1217,7 +1203,7 @@ static void vz_fx(uint32_t now)
                 if (oz[o[1]] < oz[o[2]]) { t = o[1]; o[1] = o[2]; o[2] = t; }
                 if (oz[o[0]] < oz[o[1]]) { t = o[0]; o[0] = o[1]; o[1] = t; }
                 for (k = 0; k < 3; k++)
-                    g3_draw(&G3_OCT, ox[o[k]], 0, oz[o[k]], 5, 6, 5, 0, (int)(now >> 3) + o[k] * 200, 0, C_O0, 8, 0, C_O6);
+                    g3_draw(&G3_OCT, ox[o[k]], 0, oz[o[k]], 5, 6, 5, 0, (int)(now >> 3) + o[k] * 200, 0, G3_CHR, 8, 0, C_O6);
                 break;
             }
             case 1: {                                                          /* the echo: copies falling away down the floor */
@@ -1225,7 +1211,7 @@ static void vz_fx(uint32_t now)
                 int n = 2 + ui_lv(P_DFB) * 4 / 127, s0 = 3 + ui_lv(P_DLY) * 4 / 127, act = (int)((now / (uint32_t)(SP[gs.p[P_DTIM] % 6u] * 22u)) % (uint32_t)n);
                 for (k = n - 1; k >= 0; k--) {
                     int s = s0 * (n + 1 - k) / (n + 1);
-                    g3_draw(&G3_CUBE, 0, s * 2, -30 + k * 60 / n, s, s, s, 0, (int)(now >> 4) + k * 60, 0, C_O0, 8, k == act ? 3 : -1, k == act ? C_HOT : C_O5);
+                    g3_draw(&G3_CUBE, 0, s * 2, -30 + k * 60 / n, s, s, s, 0, (int)(now >> 4) + k * 60, 0, G3_CHR, 8, k == act ? 3 : -1, k == act ? C_HOT : C_O5);
                 }
                 break;
             }
@@ -1233,7 +1219,7 @@ static void vz_fx(uint32_t now)
                 int fbk = ui_lv(P_DFB), r = 115 + fbk * 115 / 127, s = 7 * 16, oy = -26;
                 for (k = 0; k < 5; k++) {
                     int sc = s / 16 < 1 ? 1 : s / 16;
-                    g3_draw(&G3_CUBE, 0, oy + sc * 2, 0, sc, sc, sc, 0, (int)(now >> 4) * (k + 1) + k * 90, 0, C_O0, 8, 0, C_O6);
+                    g3_draw(&G3_CUBE, 0, oy + sc * 2, 0, sc, sc, sc, 0, (int)(now >> 4) * (k + 1) + k * 90, 0, G3_CHR, 8, 0, C_O6);
                     oy += sc * 4;
                     s = s * r / 256;
                 }
@@ -1254,7 +1240,7 @@ static void vz_fx(uint32_t now)
             case 0: {                                                          /* the room: a box as long as the size, a ball between its ends */
                 int sz = 4 + ui_lv(P_RSZ) * 10 / 127, lim = sz * 2 - 5, bz = g3_sin((int)(now >> 2)) * lim / 32768;
                 g3_draw(&G3_CUBE, 0, 0, 0, 8, 5, sz, 0, 0, 0, 255, 0, 0, C_S5);
-                g3_draw(&G3_OCT, 0, 0, bz, 2, 2, 2, (int)(now >> 3), (int)(now >> 3), 0, C_O0, 8, 2, C_HOT);
+                g3_draw(&G3_OCT, 0, 0, bz, 2, 2, 2, (int)(now >> 3), (int)(now >> 3), 0, G3_CHR, 8, 2, C_HOT);
                 break;
             }
             case 1: {                                                          /* the crusher: it turns in steps, in fewer shades */
@@ -1267,7 +1253,7 @@ static void vz_fx(uint32_t now)
                 int drv = ui_lv(P_DRV), hot = drv > 80;
                 int jx = (int)(ui_hash(now >> 5) % (uint32_t)(drv / 40 + 1));
                 g3_draw(&G3_PYR, jx, 6 + drv * 14 / 127, 0, 8, 6 + drv * 14 / 127, 8, 0, (int)(now >> 3), 0,
-                        hot ? C_R0 : C_O0, hot ? 5 : 8, 1, hot ? C_HOT : C_O6);
+                        hot ? C_R0 : G3_CHR, hot ? 5 : 8, 1, hot ? C_HOT : C_O6);
                 break;
             }
             default: {                                                         /* the glide: a slide from one note to the next, ghosts behind it */
@@ -1276,7 +1262,7 @@ static void vz_fx(uint32_t now)
                 for (k = 3; k >= 0; k--) {
                     int g = f - k * 90;
                     g = g < 0 ? 0 : g;
-                    g3_draw(&G3_OCT, -18 + 36 * g / 1000, 0, -22 + 44 * g / 1000, 5, 5, 5, 0, (int)(now >> 3), 0, C_O0, 8, k ? -2 : 2, k ? C_O3 : C_HOT);
+                    g3_draw(&G3_OCT, -18 + 36 * g / 1000, 0, -22 + 44 * g / 1000, 5, 5, 5, 0, (int)(now >> 3), 0, G3_CHR, 8, k ? -2 : 2, k ? C_O3 : C_HOT);
                 }
                 break;
             }
@@ -1325,7 +1311,7 @@ static void vz_arp(uint32_t now)
         {
             int h = 8 + (note - base + 40) * 2, on = gs.p[P_AON], cur = i == (gs.astep ? (int)((gs.astep - 1) & 15) : 0);
             h = ui_clamp(h, 8, VH - 30);
-            g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, on ? C_O0 : C_S0, on ? 8 : 4, cur ? 5 : 0, on ? (cur ? C_HOT : C_O6) : C_S3);
+            g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, on ? G3_CHR : C_S0, on ? 8 : 4, cur ? 5 : 0, on ? (cur ? C_HOT : C_O6) : C_S3);
         }
     }
 }
@@ -1348,7 +1334,7 @@ static void vz_gate(uint32_t now)
             h = 40 - 34 * depth / 127 * down / 4096;
             on = (i % per) != 0;
         }
-        g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, cur ? 5 : 0, cur ? C_HOT : (on ? C_O6 : C_O3));
+        g3_draw(&G3_CUBE, i * 13 - 97, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, G3_CHR, 8, cur ? 5 : 0, cur ? C_HOT : (on ? C_O6 : C_O3));
     }
 }
 
@@ -1414,7 +1400,7 @@ static void vz_seq(uint32_t now)
         int s = b0 + i, out = s >= len, f = gs.sp[pc][s], on = SP_ON(f), h = on ? 6 + SP_NOTE(f) * 34 / 36 : 3, x = i * 13 - 97;
         int playing = run && !gs.scount && s == pos, fresh = gs.rec_n && s == gs.rec_step && now - ui.rec_t < 350u;
         if (!out && on && SP_SLD(f) && i < 15 && s + 1 < len)                  /* the slide's bridge */
-            g3_draw(&G3_CUBE, x + 7, h / 2, 0, 3, 1, 1, 0, 0, 0, C_O0, 8, 2, C_O4);
+            g3_draw(&G3_CUBE, x + 7, h / 2, 0, 3, 1, 1, 0, 0, 0, G3_CHR, 8, 2, C_O4);
         if (out)
             g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_S0, 4, 0, C_S1);
         else if (fresh)
@@ -1422,7 +1408,7 @@ static void vz_seq(uint32_t now)
         else if (on && SP_ACC(f))
             g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_R0, 5, playing ? 4 : 1, C_HOT);
         else
-            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_O0, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
+            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, G3_CHR, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
     }
     /* the pattern tabs: A to H */
     for (i = 0; i < GS_NP; i++) {
@@ -1702,7 +1688,7 @@ static void vz_save(uint32_t now)
         {
             int s = sel ? 3 : 2, spin = (int)(now >> (sel ? 3 : 5)) + i * 70, bob = sel ? g3_sin((int)(now >> 2)) * 3 / 32768 : 0;
             if (full)
-                g3_draw(&G3_ICO, 0, bob, 0, s, s, s, spin / 3, spin, 0, C_O0, 8, sel ? 2 : 0, sel ? C_HOT : C_O6);
+                g3_draw(&G3_ICO, 0, bob, 0, s, s, s, spin / 3, spin, 0, G3_CHR, 8, sel ? 2 : 0, sel ? C_HOT : C_O6);
             else
                 g3_draw(&G3_CUBE, 0, bob, 0, s, s, s, spin / 3, spin, 0, 255, 0, 0, sel ? C_S6 : C_S3);
         }
@@ -1823,23 +1809,24 @@ static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int a
         mx = ui_ov_m;
     }
     ui_glass(x, y, w, h, hot ? C_O5 : C_S0);
-    fb_micro_c(x + w / 2, y + 7, label, hot ? C_HOT : C_S5, 1);
-    fb_hline(x + 8, y + 16, w - 16, hot ? C_O3 : C_K3);
+    if (!hot)                                                                       /* (at rest the chrome rim is two pixels thick) */
+        for (k = 4; k < h - 4; k++) {
+            fb_pset(x + 1, y + k, FB_CHR[1 + k * 13 / (h - 1)]);
+            fb_pset(x + w - 2, y + k, FB_CHR[1 + k * 13 / (h - 1)]);
+        }
+    fb_micro_c(x + w / 2, y + 7, label, hot ? C_HOT : C_O6, 1);
     val = idx == 255u ? "" : ui_val(idx, buf);
     if (idx != 255u && !ui_is_enum(idx) && !(idx == P_GLIDE && !v))
-        fb_text2_c(x + w / 2, y + 27, val, hot ? C_HOT : accent ? C_O6 : C_INK, 0);
+        fb_text2_c(x + w / 2, y + 27, val, hot ? C_HOT : C_INK, 0);
     else if (idx != 255u)
-        ui_fit_c(x + w / 2, y + 31, val, hot ? C_HOT : C_O6, w - 4);
+        ui_fit_c(x + w / 2, y + 31, val, hot ? C_HOT : C_INK, w - 4);
     lit = mx ? (v * mw + mx / 2) / mx : 0;                                          /* the meter: a track, a fill that brightens toward its head */
     fb_rect(x + 6, y + 63, mw, 3, C_K3);
-    for (k = 0; k < lit; k++)
-        fb_vline(x + 6 + k, y + 63, 3, (uint8_t)(C_O2 + ui_clamp(k * 5 / mw + (hot ? 1 : 0), 0, 5)));
-    if (lit > 0) {
-        fb_vline(x + 5 + lit, y + 62, 5, C_HOT);
-        fb_pset(x + 4 + lit, y + 64, C_O6);
-    }
-    for (k = 0; k <= 4; k++)                                                         /* five ticks under it */
-        fb_pset(x + 6 + k * (mw - 1) / 4, y + 68, C_S1);
+    fb_rect(x + 6, y + 63, lit, 3, C_O5);
+    if (lit > 0)
+        fb_vline(x + 5 + lit, y + 62, 5, C_INK);
+    (void)k;
+    (void)accent;
 }
 
 /* the battery, top right: a glass orb filled to the charge, green when full, then lime, yellow, amber and orange as it drains, and
@@ -1884,22 +1871,18 @@ static void ui_header(uint32_t now)
     char b[12];
     int w = ui_world(), k;
     fb_rect(0, 0, 240, 21, C_BG);
-    for (k = 0; k < 4; k++)                                                          /* the world's mark: a small gem */
-        fb_hline(9 - k, 6 + k, 1 + 2 * k, (uint8_t)(C_O6 - k));
-    for (k = 0; k < 4; k++)
-        fb_hline(6 + k, 10 + k, 7 - 2 * k, (uint8_t)(C_O3 - (k > 1)));
+    fb_spark(9, 10, 5, C_S5);                                                        /* the world's mark: a glint of chrome */
+    fb_spark(9, 10, 2, C_HOT);
     fb_micro(17, 8, UI_WORLD[w], C_O6, 1);
-    fb_text_c(120, 3, "GARTSTRINGER", C_INK);
+    fb_text_chrome(120 - fb_text_w("GARTSTRINGER") / 2, 3, "GARTSTRINGER", 13);
+    (void)k;
     if (gs.mac || gs.djf != 64u)                                                     /* the performance page is doing something */
         fb_micro(165, 9, "FX", ((now >> 8) & 1u) ? C_HOT : C_R3, 0);
     ui_num(b, gs.bpm);
-    fb_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_O6);
+    fb_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_INK);
     fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_S4, 0);        /* (EXT: the tempo is an outside clock's) */
     ui_battery(228, 10, now);
-    fb_hline(0, 21, 240, C_K3);                                                      /* the streak */
-    fb_hline(40, 21, 160, C_O2);
-    fb_hline(78, 21, 84, C_O4);
-    fb_hline(104, 21, 32, C_O6);
+    fb_hline(0, 21, 240, C_O2);                                                      /* the line under it */
 }
 
 /* under the window: the patch (its number in its bank, its name), the octave; then four lamps over the four cards */
@@ -1917,7 +1900,7 @@ static void ui_status(uint32_t now)
     if (gs.oct > 0)
         *p++ = '+';
     ui_num(p, gs.oct);
-    fb_micro_r(233, 126, b, gs.oct ? C_O6 : C_S4, 1);
+    fb_micro_r(233, 126, b, gs.oct ? C_O6 : C_DIM, 1);
     {
         static const char *const LN[4] = {"ARP", "CHORD", "HOLD", "GLITCH"};
         uint8_t on[4];
@@ -1927,15 +1910,15 @@ static void ui_status(uint32_t now)
         on[3] = gl.on;
         for (i = 0; i < 4; i++) {
             int x = 6 + i * 58;
-            if (on[i]) {
-                fb_rbox(x, 140, 54, 11, 3, i == 3 ? C_R1 : C_O2);
-                fb_hline(x + 3, 140, 48, i == 3 ? C_R3 : C_O5);
-                fb_rect(x + 5, 144, 3, 3, C_HOT);
-            } else {
-                fb_rbox(x, 140, 54, 11, 3, C_K1);
-                fb_rect(x + 5, 144, 3, 3, C_K3);
+            uint8_t c = on[i] ? (i == 3 ? C_R3 : C_O5) : C_K3;             /* on: a pill of the signal colour, its name dark in it */
+            fb_rect(x + 5, 140, 44, 11, c);
+            fb_rect(x + 4, 141, 46, 9, c);
+            fb_rect(x + 3, 142, 48, 7, c);
+            if (!on[i]) {                                                  /* off: its outline */
+                fb_rect(x + 5, 141, 44, 9, C_BG);
+                fb_rect(x + 4, 142, 46, 7, C_BG);
             }
-            fb_micro_c(x + 29, 143, i == 0 && gs.srun ? "SEQ" : LN[i], on[i] ? C_HOT : C_S3, 1);
+            fb_micro_c(x + 28, 143, i == 0 && gs.srun ? "SEQ" : LN[i], on[i] ? C_BG : C_DIM, 1);
         }
     }
 }
@@ -1957,6 +1940,58 @@ static void ui_cpu(void)
     fb_micro(60, 8, b, C_S2, 0);
 }
 
+/* A world's title: its emblem in chrome inside a ring of ticks, the name on a bar of chrome, the world's own name under it. It is the
+ * screen at power-on (a: the milliseconds since, the ring opening and the emblem and the name arriving in turn) and it shows for a
+ * moment when ALGORITHM steps to another world. */
+static void ui_splash(int w, int a, uint32_t now)
+{
+    static const int8_t GL[4][2] = {{0, 0}, {0, -2}, {0, -4}, {18, -8}};        /* where each emblem's glint sits */
+    char b[12], *p;
+    int cx = 120, cy = 90, i, rr = a < 500 ? 16 + a * 54 / 500 : 70, tw = (int)((now >> 7) & 7u);
+    w &= 3;
+    if (ui.theme_on != 3u * (uint32_t)w) {                                    /* its colours at once, not faded in */
+        fb_theme_snap(3u * (uint32_t)w);
+        ui.theme_on = (uint8_t)(3u * (uint32_t)w);
+    }
+    fb_fill(C_BG);
+    for (i = 0; i < 4; i++)
+        fb_disc(cx, cy, 108 - i * 25, (uint8_t)(C_B0 + i));
+    for (i = -6; i <= 6; i++) {
+        fb_line(cx, cy, cx + i * 40, 239, C_GRID0);
+        fb_line(cx, cy, cx + i * 40, 0, C_GRID0);
+    }
+    fb_ring(cx, cy, rr * 4 / 7, C_O2);
+    fb_ring(cx, cy, rr, C_O5);
+    for (i = 0; i < 48; i++) {                                               /* the ticks round the ring, turning slowly; none at its sides */
+        int ang = i * 1024 / 48 + (int)(now >> 6), k = i % 12, c = g3_cos(ang), sn = g3_sin(ang);
+        if (k == 11 || k == 0 || k == 1)
+            continue;
+        fb_line(cx + c * rr / 32768, cy + sn * rr / 32768, cx + c * (rr + 3) / 32768, cy + sn * (rr + 3) / 32768, C_O5);
+    }
+    fb_brackets(6, 6, 228, 228, 10, C_O6);
+    fb_micro(13, 13, "GS/FM-1", C_O6, 1);
+    p = ui_str(b, "WORLD ");
+    p = ui_num(p, w + 1);
+    ui_str(p, "/4");
+    fb_micro_r(227, 13, b, C_O6, 1);
+    if (a > 250) {
+        fb_art(ART_WORLD[w], cx, cy);
+        fb_spark(cx + GL[w][0], cy + GL[w][1], 6 + (tw < 4 ? tw : 7 - tw), C_HOT);
+    }
+    if (a > 600) {
+        fb_art(ART_PLATE, 120, 176);
+        fb_spark(214, 164, tw & 4 ? 3 : 2, C_HOT);
+    }
+    if (a > 900) {
+        fb_text2_chrome(120, 195, UI_WORLD[w], 4, 22);
+        fb_hline(16, 207, 30, C_O5);
+        fb_hline(194, 207, 30, C_O5);
+    }
+    fb_spark(34, 150, tw & 2 ? 3 : 2, C_O6);
+    fb_spark(206, 40, tw & 1 ? 4 : 3, C_O6);
+    sk_present();
+}
+
 static void ui_draw(uint32_t now)
 {
     static uint8_t fadet;
@@ -1966,45 +2001,20 @@ static void ui_draw(uint32_t now)
         fb_fade();
     fb_unclip();
     if (ui.intro) {
-        int a;
         if (!ui.intro_t)
             ui.intro_t = now;
-        a = (int)(now - ui.intro_t);
-        if (a > 2600)
+        if (now - ui.intro_t > 2600u)
             ui.intro = 0, gs_intro_n = 0;
         else {
-            /* the title: a field of towers rises out of the dark under a turning gem, the name comes up over them and goes with the saw */
-            int lv = a < 1100 ? a * 7 / 1100 : (2500 - a) * 7 / 1400, r, c, rise = a < 1300 ? a * 256 / 1300 : 256, uw;
-            lv = ui_clamp(lv, 0, 7);
-            rise = 256 - ((256 - rise) * (256 - rise) >> 8);                             /* eased */
-            fb_fill(C_BG);
-            for (r = 0; r < 6; r++)                                                    /* a glow low on the horizon */
-                fb_rect(0, 96 + r * 5, 240, 5, (uint8_t)(C_B0 + (r < 3 ? r : 5 - r)));
-            g3_cam(120, 150, 250, 330, 120);
-            for (r = 4; r >= 0; r--)                                                   /* far rows first */
-                for (c = 0; c < 7; c++) {
-                    uint32_t h = ui_hash((uint32_t)(r * 7 + c) * 2246822519u + 3u);
-                    int ht = 8 + (int)(h % 46u), bob = g3_sin((int)(now >> 2) + (int)(h >> 8)) * 4 / 32768;
-                    ht = (ht + bob) * rise / 256;
-                    if (ht < 2)
-                        ht = 2;
-                    g3_draw(&G3_CUBE, (c - 3) * 36, ht / 2, (r - 2) * 36, 5, ht / 4 + 1, 5, 0, 0, 0, C_O0, 8, 1 - r, r < 2 ? C_O6 : (r < 4 ? C_O4 : C_O2));
-                }
-            g3_cam(120, 104, 230, 230, 120);
-            g3_draw(&G3_ICO, 0, 0, 0, 5, 5, 5, a / 5, a / 3, 0, C_O0, 8, 2, C_HOT);
-            if (lv > 0) {
-                fb_text2_c(119, 40, "GARTSTRINGER", C_O2, 2);                           /* a soft edge either side, then the letters */
-                fb_text2_c(121, 40, "GARTSTRINGER", C_O2, 2);
-                fb_text2_c(120, 40, "GARTSTRINGER", (uint8_t)(lv >= 7 ? C_HOT : C_O1 + lv), 2);
-            }
-            uw = ui_clamp(a / 5, 0, 190);
-            fb_hline(120 - uw / 2, 72, uw, C_O3);
-            fb_hline(120 - uw / 4, 72, uw / 2, C_O6);
-            if (a > 900 && lv > 1)
-                fb_micro_c(120, 79, "FIRMWARE BY OBBY MAUL", (uint8_t)(C_S1 + ui_clamp(lv - 1, 0, 5)), 2);
-            fb_micro_r(234, 230, "1.0", C_S2, 1);
-            ui_theme(0);
-            sk_present();
+            ui_splash(ui_world(), (int)(now - ui.intro_t), now);
+            return;
+        }
+    }
+    if (ui.spl_t) {                                                          /* a world just entered: its title, briefly */
+        if (now - ui.spl_t > 900u)
+            ui.spl_t = 0;
+        else {
+            ui_splash(ui_world(), 2600, now);
             return;
         }
     }
@@ -2016,6 +2026,9 @@ static void ui_draw(uint32_t now)
     fb_clip(VX, VY, VX + VW, VY + VH);
     switch (ui.page) {
     case PG_HOME:
+        vz_home(now);
+        vz_gate_strip(VY + VH - 14, 8);
+        break;
     case PG_OSC:
         vz_towers(now);
         vz_gate_strip(VY + VH - 14, 8);
@@ -2088,17 +2101,17 @@ static void ui_draw(uint32_t now)
                 ui_ov_m = SV_N - 1;
                 ui_plate(0, "SLOT", 255, now, 1);
                 ui_ov_m = 0;
-                fb_text2_c(6 + 27, 156 + 27, b, C_O6, 0);
+                fb_text2_c(6 + 27, 156 + 27, b, C_INK, 0);
             } else if (i == 1u) {
                 ui_plate(1, "DO", 255, now, 1);
-                fb_text_c(6 + 58 + 27, 156 + 31, UI_SAVE_ACT[ui.act], C_O6);
+                fb_text_c(6 + 58 + 27, 156 + 31, UI_SAVE_ACT[ui.act], C_INK);
             } else if (i == 2u) {                                       /* the converter's rate, as measured against the crystal */
                 uint32_t r = sk_rate_mhz;
                 char *q = b;
                 ui_plate(2, "CLOCK", 255, now, 0);
                 if (r) {
                     q = ui_num(q, (int)(r / 1000u));
-                    fb_text_c(6 + 2 * 58 + 27, 156 + 27, b, C_O6);
+                    fb_text_c(6 + 2 * 58 + 27, 156 + 27, b, C_INK);
                     q = ui_str(b, ".");
                     q = ui_num(q, (int)(r % 1000u / 100u));
                     ui_str(q, " HZ");
@@ -2113,7 +2126,7 @@ static void ui_draw(uint32_t now)
                 ui_plate(3, "BATTERY", 255, now, 0);
                 ui_ov_m = 0;
                 if (sk_batt) {
-                    fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_O6, 0);
+                    fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_INK, 0);
                     q = ui_num(b, sk_batt);
                     fb_micro_c(6 + 3 * 58 + 27, 156 + 54, b, C_S2, 0);
                 } else
@@ -2130,7 +2143,7 @@ static void ui_draw(uint32_t now)
                 ui_ov_v = ui.cur;
                 ui_ov_m = GS_NS - 1;
                 ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_O6, 0);
+                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
             } else if (i == 1u) {
                 if (SP_ON(f))
                     ui_note_name(b, ui_step_note(ui.cur));
@@ -2139,18 +2152,18 @@ static void ui_draw(uint32_t now)
                 ui_ov_v = SP_ON(f) ? SP_NOTE(f) : 0;
                 ui_ov_m = 36;
                 ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, SP_ON(f) ? C_O6 : C_INK2, 0);
+                fb_text2_c(cx, 156 + 27, b, SP_ON(f) ? C_INK : C_INK2, 0);
             } else if (i == 2u) {
                 ui_ov_v = t;
                 ui_ov_m = 4;
                 ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text_c(cx, 156 + 31, TN[t], C_O6);
+                fb_text_c(cx, 156 + 31, TN[t], C_INK);
             } else {
                 ui_num(b, gs.spl[gs.pcur]);
                 ui_ov_v = gs.spl[gs.pcur] - 1;
                 ui_ov_m = GS_NS - 1;
                 ui_plate(3, pg->k[3], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_O6, 0);
+                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
             }
             ui_ov_m = 0;
         } else if (ui.page == PG_SEQ4) {
@@ -2163,24 +2176,24 @@ static void ui_draw(uint32_t now)
                 ui_ov_v = ui.cur;
                 ui_ov_m = GS_NS - 1;
                 ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_O6, 0);
+                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
             } else if (i == 1u) {
                 char *q = ui_str(b, "x");
                 ui_num(q, SX_RAT(x));
                 ui_ov_v = SX_RAT(x) - 1;
                 ui_ov_m = 3;
                 ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, SX_RAT(x) > 1 ? C_HOT : C_O6, 0);
+                fb_text2_c(cx, 156 + 27, b, SX_RAT(x) > 1 ? C_HOT : C_INK, 0);
             } else if (i == 2u) {
                 ui_ov_v = 3 - SX_CH(x);
                 ui_ov_m = 3;
                 ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text_c(cx, 156 + 31, CH[SX_CH(x)], SX_CH(x) ? C_HOT : C_O6);
+                fb_text_c(cx, 156 + 31, CH[SX_CH(x)], SX_CH(x) ? C_HOT : C_INK);
             } else {
                 ui_ov_v = gs.psnd[gs.pcur];
                 ui_ov_m = 1;
                 ui_plate(3, pg->k[3], 255, now, 1);
-                fb_text_c(cx, 156 + 31, gs.psnd[gs.pcur] ? "OWN" : "SHARED", gs.psnd[gs.pcur] ? C_HOT : C_O6);
+                fb_text_c(cx, 156 + 31, gs.psnd[gs.pcur] ? "OWN" : "SHARED", gs.psnd[gs.pcur] ? C_HOT : C_INK);
             }
             ui_ov_m = 0;
         } else if (ui.page == PG_PERF && i < 3u) {
@@ -2191,12 +2204,12 @@ static void ui_draw(uint32_t now)
                 ui_ov_v = gs.mac;
                 ui_ov_m = 127;
                 ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, gs.mac ? C_HOT : C_O6, 0);
+                fb_text2_c(cx, 156 + 27, b, gs.mac ? C_HOT : C_INK, 0);
             } else if (i == 1u) {
                 ui_ov_v = gs.mkind;
                 ui_ov_m = GS_NMAC - 1;
                 ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text_c(cx, 156 + 31, GS_MAC_NAME[gs.mkind % GS_NMAC], C_O6);
+                fb_text_c(cx, 156 + 31, GS_MAC_NAME[gs.mkind % GS_NMAC], C_INK);
             } else {
                 int v = (int)gs.djf - 64;
                 char *q = b;
@@ -2206,7 +2219,7 @@ static void ui_draw(uint32_t now)
                 ui_ov_v = gs.djf;
                 ui_ov_m = 127;
                 ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, v ? b : "0", v ? C_HOT : C_O6, 0);
+                fb_text2_c(cx, 156 + 27, v ? b : "0", v ? C_HOT : C_INK, 0);
             }
             ui_ov_m = 0;
         } else if (ui.page == PG_SEQ3) {
@@ -2224,14 +2237,14 @@ static void ui_draw(uint32_t now)
                 p = ui_str(p, ">");
                 *p++ = (char)('A' + (gs.pcur + 1) % GS_NP);
                 *p = 0;
-                fb_text_c(6 + 58 + 27, 156 + 31, b, C_O6);
+                fb_text_c(6 + 58 + 27, 156 + 31, b, C_INK);
             } else if (i == 3u) {
                 if (ui.shift > 0)
                     *p++ = '+';
                 ui_num(p, ui.shift);
-                fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_O6, 0);
+                fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_INK, 0);
             } else
-                fb_text_c(6 + (int)i * 58 + 27, 156 + 31, TH[i == 0u ? 0 : 2], C_O6);
+                fb_text_c(6 + (int)i * 58 + 27, 156 + 31, TH[i == 0u ? 0 : 2], C_INK);
         } else
             ui_plate((int)i, pg->k[i], pg->p[i], now, 1);
     }
