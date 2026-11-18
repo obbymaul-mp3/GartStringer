@@ -76,7 +76,7 @@ static uint32_t sk_in_keys(uint32_t *held) { uint32_t p = hs_kp; *held = hs_keys
 static void sk_led_btn(uint32_t l, uint32_t v) { hs_ledb[l] = (uint8_t)v; }
 static void sk_led_key(uint32_t n, uint32_t v) { hs_ledk[n] = (uint8_t)v; }
 
-static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI", "DRIFT"};
+static const char *const PN[P_N] = {"MODE", "DET", "MIX", "SUB", "COL", "OCT", "CUT", "RES", "FENV", "KEY", "FTYPE", "DRV", "AA", "AD", "AS", "AR", "FA", "FD", "FS", "FR", "LRATE", "LAMT", "LDST", "LSHP", "GLIDE", "VMODE", "CHOR", "DLY", "DTIM", "DFB", "REV", "RSZ", "GPAT", "GRATE", "GDEP", "GSMO", "APAT", "ARATE", "ARNG", "AGATE", "AON", "GLP", "GLL", "GLT", "CRU", "SRATE", "SMET", "SSWG", "SGATE", "TAPE", "CON", "CKEY", "CSCL", "CLAY", "CVOI", "DRIFT", "M1S", "M1D", "M1A", "M2S", "M2D", "M2A", "M3S", "M3D", "M3A"};
 static const char *const BN[SB_N] = {"FX", "SCL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"};
 static const char *const EN[SE_N] = {"SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"};
 static int16_t *wav;
@@ -192,6 +192,11 @@ int main(int argc, char **argv)
         } else if (!strncmp(s, "shot:", 5)) {
             run(33);
             write_ppm(s + 5);
+        } else if (!strncmp(s, "midi:", 5)) {                        /* midi:ST:D1:D2 (decimal): a control or program change in */
+            int st = 0, d1 = 0, d2 = 0;
+            sscanf(s + 5, "%d:%d:%d", &st, &d1, &d2);
+            ui_midi_push((uint32_t)st, (uint32_t)d1, (uint32_t)d2);
+            run(33);
         } else if (!strncmp(s, "slot:", 5)) {                        /* slot:N:A  load (0), save (1) or clear (2) slot N (from 0) */
             ui.slot = (uint8_t)atoi(s + 5);
             ui.act = (uint8_t)atoi(strchr(s + 5, ':') + 1);

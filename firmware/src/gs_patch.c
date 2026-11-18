@@ -67,6 +67,7 @@ static void gs_set(uint32_t idx, int v)
         [P_MODE] = GS_NMODE - 1, [P_OCT] = 4, [P_FTYPE] = GS_NFT - 1, [P_LDST] = 4, [P_LSHP] = 3, [P_VMODE] = 2, [P_DTIM] = 5,
         [P_GPAT] = GS_NPAT - 1, [P_GRATE] = 3, [P_APAT] = 7, [P_ARATE] = 4, [P_ARNG] = 3, [P_AON] = 1, [P_GLL] = 4, [P_GLT] = 3,
         [P_SRATE] = 3, [P_SMET] = 3, [P_CON] = 2, [P_CKEY] = 11, [P_CSCL] = 15, [P_CLAY] = 3, [P_CVOI] = 7,
+        [P_M1S] = GS_NMSRC - 1, [P_M1D] = GS_NMDST - 1, [P_M2S] = GS_NMSRC - 1, [P_M2D] = GS_NMDST - 1, [P_M3S] = GS_NMSRC - 1, [P_M3D] = GS_NMDST - 1,
     };
     int mx = MAXV[idx] ? MAXV[idx] : 127;
     if (v < 0)

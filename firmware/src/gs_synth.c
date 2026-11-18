@@ -38,6 +38,7 @@ enum {
     P_SRATE, P_SMET, P_SSWG, P_SGATE, P_TAPE,               /* sequencer: rate, metronome (off, soft, mid, loud), swing, gate length; and the tape (wow, flutter, a darker top) */
     P_CON, P_CKEY, P_CSCL, P_CLAY, P_CVOI,                  /* (P_CON: 0 off, 1 chords, 2 the keys kept to the scale) */
     P_DRIFT,                                                /* drift: every voice's pitch, and the filter, wander slowly (2.1; P_N55 params before it) */
+    P_M1S, P_M1D, P_M1A, P_M2S, P_M2D, P_M2A, P_M3S, P_M3D, P_M3A,   /* the modulation matrix: three routes of source, destination, amount (2.2) */
                      /* chords: on, key, scale, layout (top, top lock, side, side lock), voicing */
     P_N
 };
@@ -66,6 +67,13 @@ static const char *const GS_GT_STR[GS_NPAT] = {
 static const char *const GS_GT_NAME[GS_NPAT] = {"OFFBEAT", "BOUNCE", "ROLLING", "TRANCE A", "TRANCE B", "3-3-2", "STUTTER", "DOUBLE", "SYNCOPE", "SKIP", "SPARSE", "HAUNT", "RANDOM", "OPEN", "PUMP 1/4", "PUMP 1/8"};
 
 /* the voice mode as played: the chord instrument needs every voice, so it plays polyphonic whatever the patch says */
+/* The modulation matrix (2.2): three routes. Each takes a source, scales it by an amount (0..127, 64 is none: below it the source
+ * pulls the other way) and adds it to a destination, for each voice. */
+#define GS_NMOD 3
+#define GS_NMSRC 9
+#define GS_NMDST 6
+static const char *const GS_MSRC_NAME[GS_NMSRC] = {"OFF", "LFO", "FILT ENV", "AMP ENV", "KEY", "VELOCITY", "RANDOM", "DRIFT", "MACRO"};
+static const char *const GS_MDST_NAME[GS_NMDST] = {"PITCH", "CUTOFF", "AMP", "COLOUR", "DETUNE", "MIX"};
 #define GS_CHORDS() (gs.p[P_CON] == 1u)                    /* one key plays a chord */
 #define GS_SLOCK() (gs.p[P_CON] == 2u)                     /* every key is moved onto the scale */
 #define P_N55 55u                                          /* how many parameters 1.2 to 2.0 had (their saves) */
@@ -81,6 +89,7 @@ static const uint8_t GS_DEF[P_N] = {
     1, 0, 0, 70, 0,
     0, 0, 1, 1, 0,
     0,
+    0, 0, 64, 0, 0, 64, 0, 0, 64,
 };
 
 /* ------------------------------------------------------------------ helpers --- */
@@ -105,6 +114,7 @@ typedef struct {
     int32_t fb[3];                       /* the feedback oscillators' last outputs */
     int32_t ic[4];                       /* the filter's states: stage 1 (two), stage 2 (two) */
     int32_t fr;
+    int16_t rnd;                         /* a number drawn when the note began (the matrix's RANDOM) */
 } gs_voice_t;
 
 static struct {
@@ -288,6 +298,7 @@ static void gs_voice_on(uint32_t i, uint32_t note, uint32_t vel, int retrig)
     v->note = (uint8_t)note;
     v->vel = (uint8_t)vel;
     v->age = 0;
+    v->rnd = (int16_t)(sk_rand() & 0xFFFFu);
     if (!gs.p[P_GLIDE] || !v->ae)
         v->pitch = (int32_t)note << 8;
     gs.note_t = 8;
@@ -429,8 +440,6 @@ static void gs_lfo_step(void)
         gs.lfo = gs.lfo_sh * 2;
         break;
     }
-    if (!gs.p[P_LAMT])
-        gs.lfo = 0;
     /* the tape: a slow wow and a quick flutter on every voice's pitch (up to about a third of a semitone) */
     gs.wow_ph += 1714000u;                                         /* 0.55 Hz at the block rate */
     gs.flu_ph += 19000000u;                                        /* 6.1 Hz */
@@ -438,7 +447,7 @@ static void gs_lfo_step(void)
                                            SK_SIN[(gs.flu_ph >> 22) & 1023u] * ((int32_t)gs.p[P_TAPE] * 12 / 127)) >> 15) : 0;
     /* drift: each voice, and the filter, heads for a point picked at random and for a new one every second or two, slowly: no
      * two voices move together and nothing repeats */
-    if (gs.p[P_DRIFT]) {
+    {                                                      /* (it always runs: the matrix can use it with DRIFT at 0) */
         uint32_t i;
         for (i = 0; i <= GS_NV; i++) {
             if ((sk_rand() & 2047u) == 0u)
@@ -478,7 +487,7 @@ static void gs_voices(int32_t *mix, uint32_t n)
         mix[i] = 0;
     for (vi = 0; vi < GS_NV; vi++) {
         gs_voice_t *v = &gs.v[vi];
-        int32_t tgt, vib = 0, cutq, col, det, mixv, ga, dga, ga_new;
+        int32_t tgt, vib = 0, cutq, col, det, mixv, ga, dga, ga_new, md[GS_NMDST];
         uint32_t inc, base, finc[7], thr = 0;
         int32_t a1, a2, a3, a1b = 0, a2b = 0, a3b = 0, kk, kv = 0;
         uint32_t fmi = 0, fmt = 0;                              /* the FM kinds' modulation depths this block */
@@ -500,8 +509,32 @@ static void gs_voices(int32_t *mix, uint32_t n)
             v->pitch += (int32_t)(((int64_t)(tgt - v->pitch) * (int32_t)GS_K[p[P_GLIDE] / 2u + 30u]) >> 16);
         else
             v->pitch = tgt;
+        /* the matrix: what its three routes add to each destination for this voice */
+        {
+            uint32_t r;
+            for (r = 0; r < GS_NMDST; r++)
+                md[r] = 0;
+            for (r = 0; r < GS_NMOD; r++) {
+                uint32_t src = p[P_M1S + 3u * r], to = p[P_M1D + 3u * r];
+                int32_t a = (int32_t)p[P_M1A + 3u * r] - 64, s;
+                if (!src || !a || to >= GS_NMDST)
+                    continue;
+                switch (src) {
+                case 1: s = lfo; break;
+                case 2: s = v->fe >> 1; break;
+                case 3: s = v->ae >> 1; break;
+                case 4: s = sk_clampi((v->pitch - 15360) * 5, -32767, 32767); break;      /* two octaves either side of middle C */
+                case 5: s = (int32_t)v->vel * 258; break;
+                case 6: s = v->rnd; break;
+                case 7: s = sk_clampi(gs.dr[vi] >> 1, -32767, 32767); break;
+                default: s = (int32_t)gs.mac * 258; break;
+                }
+                md[to] += (s * a) >> 6;                           /* +-32768 at a full amount */
+            }
+        }
+        vib = (md[0] * 3) >> 5;                                   /* (a full route: an octave) */
         if (dst == 0u)
-            vib = (lfo * amt) >> 13;
+            vib += (lfo * amt) >> 13;
         gs_pitch_inc(v->pitch + vib + gs.tape_pq + (p[P_DRIFT] ? (gs.dr[v - gs.v] * (int32_t)p[P_DRIFT]) >> 16 : 0) +      /* (drift: up to half a semitone either way) */
                      ((int32_t)p[P_OCT] - 2) * 12 * 256, &inc, &base);
         /* colour, detune */
@@ -511,7 +544,9 @@ static void gs_voices(int32_t *mix, uint32_t n)
             col = sk_clampi(col + ((lfo * amt) >> 16), 0, 127);
         if (dst == 4u)
             det = sk_clampi(det + ((lfo * amt) >> 16), 0, 127);
-        mixv = p[P_MIX];
+        col = sk_clampi(col + (md[3] >> 8), 0, 127);
+        det = sk_clampi(det + (md[4] >> 8), 0, 127);
+        mixv = sk_clampi((int32_t)p[P_MIX] + (md[5] >> 8), 0, 127);
         /* the filter */
         cutq = (int32_t)p[P_CUT] * 256;
         cutq += (int32_t)(((int64_t)v->fe * p[P_FENV] * 807) >> 18);
@@ -520,6 +555,7 @@ static void gs_voices(int32_t *mix, uint32_t n)
         cutq += (int32_t)(((int64_t)(v->pitch - 15360) * p[P_KEY] * 142) >> 14);
         if (dst == 1u)
             cutq += (lfo * amt) >> 9;
+        cutq += md[1] >> 1;
         if (p[P_DRIFT])
             cutq += (gs.dr[GS_NV] * (int32_t)p[P_DRIFT]) >> 12;      /* (drift: the filter wanders too) */
         if (gs.mkind == 0u)
@@ -557,6 +593,8 @@ static void gs_voices(int32_t *mix, uint32_t n)
         }
         /* amplitude of this block, with the tremolo */
         ga_new = (int32_t)(((int64_t)v->ae * (int32_t)v->vel) >> 7);
+        if (md[2])
+            ga_new = (int32_t)(((int64_t)ga_new * sk_clampi(32768 + md[2], 0, 49152)) >> 15);
         if (dst == 2u) {
             int32_t uni = (lfo + 32768) >> 1;                 /* 0..32767 */
             ga_new = (int32_t)(((int64_t)ga_new * (32768 - (int32_t)(((int64_t)amt * (32767 - uni)) >> 7))) >> 15);

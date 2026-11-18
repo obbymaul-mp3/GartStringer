@@ -75,6 +75,8 @@ static void sk_midi_drain(void)
             gs_ext_start();
         else if (st == 0xFCu)
             gs_ext_stop();
+        else if ((st & 0xF0u) == 0xB0u || (st & 0xF0u) == 0xC0u)             /* a control or program change: the main loop's */
+            ui_midi_push(st, (pkt >> 16) & 127u, (pkt >> 24) & 127u);
     }
     if (midi_in_overflow) {
         mi_r = mi_w;

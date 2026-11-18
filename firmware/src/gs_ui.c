@@ -23,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_OSC2, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_OSC2, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_MOD, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
 #define UI_SEQP() (ui.page == PG_SEQ || ui.page == PG_SEQ4 || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)   /* one of the sequencer's pages is open */
 
 static int32_t sk_in_enc(uint32_t role);
@@ -55,6 +55,7 @@ static const ui_page_t UI_PG[PG_N] = {
     {"AMP ENVELOPE", {"ATTACK", "DECAY", "SUS", "REL"}, {P_AA, P_AD, P_AS, P_AR}, P_VMODE, 0},
     {"FILTER ENV", {"ATTACK", "DECAY", "SUS", "REL"}, {P_FA, P_FD, P_FS, P_FR}, P_FTYPE, 0},
     {"LFO", {"RATE", "AMOUNT", "TARGET", "SHAPE"}, {P_LRATE, P_LAMT, P_LDST, P_LSHP}, P_LDST, 0},
+    {"MATRIX", {"ROUTE", "SOURCE", "TO", "AMOUNT"}, {255, 255, 255, 255}, 255, 2},
     {"EFFECTS", {"CHOR", "ECHO", "FDBK", "REV"}, {P_CHOR, P_DLY, P_DFB, P_REV}, P_DTIM, 0},
     {"EFFECTS 2", {"ROOM", "CRUSH", "TAPE", "GLIDE"}, {P_RSZ, P_CRU, P_TAPE, P_GLIDE}, P_VMODE, 0},
     {"ARPEGGIO", {"PATT", "RATE", "OCTS", "GATE"}, {P_APAT, P_ARATE, P_ARNG, P_AGATE}, P_AON, 1},
@@ -79,6 +80,8 @@ static struct {
     uint32_t cur_t;                      /* when it was last moved (the view follows the playhead after a while) */
     int8_t shift;                        /* what the pattern has been shifted by (shown) */
     uint8_t keys_down[27], kchord[27], con_prev;
+    uint8_t mrow;                        /* the matrix page: the route the knobs are on */
+    uint8_t bank;                        /* MIDI: the bank a program change picks from (128 patches each) */
     uint8_t silent;                      /* the keys go to the USB host only: nothing here sounds (not saved: off at power-on) */
     uint8_t kraw[27], kmute[27];         /* each key held: the note it sent to the host, and that it was silent here */
     uint8_t mot_k;                       /* knob recording: the parameter a hand is on */
@@ -109,8 +112,9 @@ static uint8_t sv_sec = 255;                              /* which sector sv hol
  * chance, each pattern's own sound, and room kept for a recorded knob. The six older sectors are only ever read: a slot that has no
  * sector of its own yet is taken from them, so what an older version saved is still there after any number of updates and saves. */
 #define SV_NEW0 SV_SECT                                   /* the first of the new sectors */
-/* A slot's layout, for a count of parameters pn (55 in what 1.2 to 2.0 wrote, "GST4"; P_N in what this version writes, "GST5":
- * 2.1 added a parameter). Both hold the same things in the same order, and both are read; what an older slot lacks reads as "none". */
+/* A slot's layout, for a count of parameters pn. Every version since 1.2 holds the same things in the same order; only pn has grown
+ * (55 in 1.2 to 2.0, "GST4"; 56 in 2.1, "GST5" with its first byte 1; from 2.2 the slot's first byte IS pn, so a later version that
+ * adds parameters needs no new format). All are read; what an older slot lacks takes its default. The sum follows the slot. */
 #define SVL_LEN(pn) (4u + (pn))                           /* the patterns' lengths */
 #define SVL_SP(pn) (SVL_LEN(pn) + GS_NP)                  /* their steps */
 #define SVL_SX(pn) (SVL_SP(pn) + GS_NP * GS_NS)           /* the steps' extras: repeat, chance */
@@ -121,16 +125,17 @@ static uint8_t sv_sec = 255;                              /* which sector sv hol
 #define SVL_SLOT(pn) (SVL_MOT(pn) + GS_NP + GS_NP * GS_NS)
 #define SV4_SLOT SVL_SLOT(P_N55)
 #define SV5_SLOT SVL_SLOT(P_N)
+#define P_N56 56u                                         /* 2.1's count */
+#define SVL_SUM(pn) ((SVL_SLOT(pn) + 3u) & ~3u)           /* where the sum sits in d[] */
 static struct {
     uint32_t magic;
-    uint8_t d[(SV5_SLOT + 3u) & ~3u];
-    uint32_t sum;
+    uint8_t d[4092];                                      /* the slot, then its sum: a whole sector */
 } s4;
 static uint8_t s4_slot = 255;                             /* which slot s4 holds */
 static uint8_t s4_pn = P_N;                               /* .. and the layout it is in: how many parameters */
 #define SV4_MAGIC 0x34545347u                /* "GST4" */
 #define SV5_MAGIC 0x35545347u                /* "GST5" */
-_Static_assert(sizeof s4 <= 4096, "a slot is a sector");
+_Static_assert(sizeof s4 == 4096 && SVL_SUM(P_N) + 4u <= sizeof s4.d && P_N >= 57 && P_N < 128, "a slot is a sector; its first byte is P_N");
 static uint32_t sv_full;                                  /* a bit a slot: kept */
 #define SV_MAGIC 0x33545347u                 /* "GST3" */
 
@@ -163,6 +168,16 @@ static char *ui_str(char *p, const char *s)
 
 /* the world a patch belongs to: trance (the first 32 patches), house, techno, garage (16 each). It sets the look and nothing else. */
 static int ui_world(void) { return GS_PWORLD[gs.preset % GS_NPRE]; }
+/* MIDI that changes settings (control changes, program changes), handed over from the audio interrupt (which takes MIDI in) to the
+ * main loop: one writer, one reader. An event is status | data 1 << 8 | data 2 << 16. */
+static volatile uint32_t ui_mq[32], ui_mq_w, ui_mq_r;
+static void ui_midi_push(uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (ui_mq_w - ui_mq_r < 32u) {
+        ui_mq[ui_mq_w % 32u] = (st & 0xFFu) | ((d1 & 127u) << 8) | ((d2 & 127u) << 16);
+        ui_mq_w++;
+    }
+}
 static const char *const UI_WORLD[GS_NWORLD] = {"TRANCE", "HOUSE", "TECHNO", "GARAGE", "AMBIENT", "BASS"};
 
 #include "gs_chord.c"
@@ -211,7 +226,7 @@ static const char *ui_pname(uint32_t idx)
 }
 static int ui_is_enum(uint32_t idx)
 {
-    return idx == P_MODE || idx == P_FTYPE || idx == P_LDST || idx == P_LSHP || idx == P_VMODE || idx == P_DTIM || idx == P_GPAT ||
+    return idx == P_M1S || idx == P_M1D || idx == P_M2S || idx == P_M2D || idx == P_M3S || idx == P_M3D || idx == P_MODE || idx == P_FTYPE || idx == P_LDST || idx == P_LSHP || idx == P_VMODE || idx == P_DTIM || idx == P_GPAT ||
            idx == P_GRATE || idx == P_APAT || idx == P_ARATE || idx == P_GLL || idx == P_GLT || idx == P_AON || idx == P_SRATE || idx == P_SMET || idx == P_CKEY || idx == P_CSCL || idx == P_CLAY || idx == P_CVOI || idx == P_CON;
 }
 static int ui_maxv(uint32_t idx)
@@ -220,6 +235,8 @@ static int ui_maxv(uint32_t idx)
     case P_MODE: return GS_NMODE - 1;
     case P_FTYPE: return GS_NFT - 1;
     case P_LDST: return 4;
+    case P_M1S: case P_M2S: case P_M3S: return GS_NMSRC - 1;
+    case P_M1D: case P_M2D: case P_M3D: return GS_NMDST - 1;
     case P_LSHP: return 3;
     case P_VMODE: return 2;
     case P_DTIM: return 5;
@@ -276,7 +293,7 @@ static uint32_t sv_sum(void)
 static void sv_pack(uint8_t *d)                             /* (always this version's layout) */
 {
     uint32_t i, k;
-    d[0] = 1;
+    d[0] = (uint8_t)P_N;                                    /* (in use, and how many parameters follow) */
     d[1] = gs.preset;
     d[2] = gs.bpm;
     for (i = 0; i < P_N; i++)
@@ -402,8 +419,13 @@ static uint32_t s4_sum(uint32_t n)
         h = (h ^ s4.d[i]) * 16777619u;
     return h;
 }
-/* bring a slot in: from its own sector if it has one (in this version's layout or the one before), else from where an older version
- * kept it (s4.d[0] 0: nothing there). s4_pn says which layout came. */
+static int s4_ok(uint32_t pn)                               /* the sum that follows a slot of pn parameters is right */
+{
+    const uint8_t *q = s4.d + SVL_SUM(pn);
+    return ((uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24)) == s4_sum(SVL_SLOT(pn));
+}
+/* bring a slot in: from its own sector if it has one (in any of the layouts above), else from where an older version kept it
+ * (s4.d[0] 0: nothing there). s4_pn says which layout came. */
 static void ui_sv_slot(uint32_t slot)
 {
     uint32_t i;
@@ -411,16 +433,24 @@ static void ui_sv_slot(uint32_t slot)
     if (s4_slot == slot)
         return;
     s4_slot = (uint8_t)slot;
-    s4_pn = P_N;
     if (sk_store_read(SV_NEW0 + slot, &s4, sizeof s4) == 0) {
-        if (s4.magic == SV5_MAGIC && s4.sum == s4_sum(SV5_SLOT))
+        if (s4.magic == SV4_MAGIC && s4_ok(P_N55)) {
+            s4_pn = P_N55;
             return;
-        if (s4.magic == SV4_MAGIC) {                            /* 1.2 to 2.0: its sum sits where its shorter slot ended */
-            const uint8_t *q = (const uint8_t *)&s4 + 4u + ((SV4_SLOT + 3u) & ~3u);
-            uint32_t sum = (uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
-            if (sum == s4_sum(SV4_SLOT)) {
-                s4_pn = P_N55;
-                return;
+        }
+        if (s4.magic == SV5_MAGIC) {
+            uint32_t pn = s4.d[0];
+            if (pn == 0u) {                                     /* a cleared slot: written by 2.1, or by this layout */
+                s4_pn = P_N;
+                if (s4_ok(P_N56) || s4_ok(P_N))
+                    return;
+            } else {
+                if (pn == 1u)
+                    pn = P_N56;
+                if (pn >= P_N56 && pn <= 100u && s4_ok(pn)) {   /* (more than this version knows: a later one's; the ones it knows are read) */
+                    s4_pn = (uint8_t)pn;
+                    return;
+                }
             }
         }
     }
@@ -467,7 +497,11 @@ static void ui_do_save(uint32_t now)
         sv_pack(s4.d);
     s4_pn = P_N;
     s4.magic = SV5_MAGIC;
-    s4.sum = s4_sum(SV5_SLOT);
+    {
+        uint32_t sum = s4_sum(SV5_SLOT);
+        uint8_t *q = s4.d + SVL_SUM(P_N);
+        q[0] = (uint8_t)sum; q[1] = (uint8_t)(sum >> 8); q[2] = (uint8_t)(sum >> 16); q[3] = (uint8_t)(sum >> 24);
+    }
     if (sk_store_write(SV_NEW0 + ui.slot, &s4, sizeof s4) == 0) {
         sv_full = ui.act == 1u ? sv_full | bit : sv_full & ~bit;
         ui_toast(ui.act == 1u ? "SAVED" : "CLEARED", now);
@@ -543,10 +577,53 @@ static void ui_page_press(uint32_t a, uint32_t b)           /* the button of a p
         ui.page = (uint8_t)a;
 }
 
+/* Control from outside, on any MIDI channel. A program change picks a patch, in the order PRESETS shows them (bank select, CC 0 or
+ * 32: 0 the first 128, 1 the rest). Control changes: 16 to 19 are K1 to K4 of the page that is open; the rest are fixed. */
+static void ui_midi(uint32_t now)
+{
+    static const uint8_t CC[][2] = {
+        {1, P_LAMT}, {5, P_GLIDE}, {70, P_COL}, {71, P_RES}, {72, P_AR}, {73, P_AA}, {74, P_CUT}, {75, P_AD}, {76, P_LRATE}, {77, P_DRV},
+        {78, P_FENV}, {79, P_AS}, {85, P_DRIFT}, {86, P_TAPE}, {87, P_CRU}, {88, P_MIX}, {89, P_SUB}, {91, P_REV}, {92, P_DLY}, {93, P_CHOR},
+        {94, P_DET}, {95, P_DFB},
+    };
+    while (ui_mq_r != ui_mq_w) {
+        uint32_t e = ui_mq[ui_mq_r % 32u], st = e & 0xF0u, d1 = (e >> 8) & 127u, d2 = (e >> 16) & 127u, k;
+        ui_mq_r++;
+        if (st == 0xC0u) {
+            ui_load_patch(GS_ORD[(d1 + 128u * ui.bank) % GS_NPRE], now);
+            continue;
+        }
+        if (st != 0xB0u)
+            continue;
+        if (d1 == 0u || d1 == 32u)
+            ui.bank = (uint8_t)(d2 ? 1 : 0);
+        else if (d1 == 12u)
+            gs.mac = (uint8_t)d2;
+        else if (d1 == 13u)
+            gs.djf = (uint8_t)d2;
+        else if (d1 == 120u || d1 == 123u) {
+            gs_all_off();
+            cd_all_off();
+        } else if (d1 >= 16u && d1 <= 19u) {
+            uint32_t idx = UI_PG[ui.page].p[d1 - 16u];
+            if (idx < P_N) {
+                gs_set(idx, (int)(d2 * (uint32_t)ui_maxv(idx) + 63u) / 127);
+                ui.k_t[d1 - 16u] = now;
+            }
+        } else
+            for (k = 0; k < sizeof CC / sizeof CC[0]; k++)
+                if (CC[k][0] == d1) {
+                    gs_set(CC[k][1], (int)(d2 * (uint32_t)ui_maxv(CC[k][1]) + 63u) / 127);
+                    break;
+                }
+    }
+}
+
 static void ui_input(uint32_t now)
 {
     uint32_t held, pr, keys, kp, i;
     int32_t d;
+    ui_midi(now);
     sk_in_buttons(&held, &pr);
     keys = 0;
     kp = sk_in_keys(&keys);
@@ -568,7 +645,7 @@ static void ui_input(uint32_t now)
     if (pr & (1u << SB_ENV))
         ui_page_press(PG_ENV, PG_ENV2);
     if (pr & (1u << SB_LFO))
-        ui_page_press(PG_LFO, 255);
+        ui_page_press(PG_LFO, PG_MOD);                              /* LFO: the LFO; again: the modulation matrix */
     if (pr & (1u << SB_FX))
         ui_page_press(PG_FX, PG_FX2);
     if (pr & (1u << SB_SEQ)) {                                      /* the sequencer: edit, setup, tools, out */
@@ -774,6 +851,20 @@ static void ui_input(uint32_t now)
             }
             continue;
         }
+        if (ui.page == PG_MOD) {                                    /* the matrix: K1 picks the route, the others set it */
+            uint32_t b = P_M1S + 3u * ui.mrow;
+            ui.k_t[i] = now;
+            if (i == 0u)
+                ui.mrow = (uint8_t)ui_clamp((int)ui.mrow + (d > 0 ? 1 : -1), 0, GS_NMOD - 1);
+            else if (i == 3u) {
+                int v = ui_clamp((int)gs.p[b + 2u] + d, 0, 127);
+                if ((gs.p[b + 2u] < 64u && v > 64) || (gs.p[b + 2u] > 64u && v < 64))   /* (it stops at none on the way through) */
+                    v = 64;
+                gs_set(b + 2u, v);
+            } else
+                gs_set(b + i - 1u, (int)gs.p[b + i - 1u] + (d > 0 ? 1 : -1));
+            continue;
+        }
         if (ui.page == PG_PERF) {
             ui.k_t[i] = now;
             if (i == 0u)
@@ -935,7 +1026,7 @@ static void ui_input(uint32_t now)
         static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_EDIT && ui.page == PG_OSC2) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_EDIT && ui.page == PG_OSC2) || (i == SB_LFO && ui.page == PG_MOD) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
@@ -1019,7 +1110,7 @@ static uint32_t ui_hash(uint32_t x);
 static void vz_back(uint32_t now)
 {
     int i, hy = VY + 32, cx = VX + VW / 2, cy = VY + VH / 2, fh = VY + VH - hy;
-    int flat = ui.page == PG_HOME || ui.page == PG_FLT || ui.page == PG_ENV || ui.page == PG_ENV2 || ui.page == PG_LFO ||
+    int flat = ui.page == PG_HOME || ui.page == PG_FLT || ui.page == PG_ENV || ui.page == PG_ENV2 || ui.page == PG_LFO || ui.page == PG_MOD ||
                ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD;
     uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
     fb_clip(VX, VY, VX + VW, VY + VH);
@@ -1236,6 +1327,30 @@ static void vz_env(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t now,
     fb_rect(VX + VW - 10, bot - (bot - top) * y / 127, 6, (bot - top) * y / 127, C_O5);
     fb_frame(VX + VW - 11, top - 1, 8, bot - top + 2, C_S2);
     (void)now;
+}
+
+static void ui_fit_c(int cx, int y, const char *s, uint8_t c, int w);
+/* the matrix: its three routes, each a line: the source, an arrow as long as the amount (to the left of the middle when it pulls
+ * the other way), the destination. The route the knobs are on is lit. */
+static void vz_matrix(uint32_t now)
+{
+    uint32_t r;
+    for (r = 0; r < GS_NMOD; r++) {
+        uint32_t b = P_M1S + 3u * r, src = gs.p[b] % GS_NMSRC, to = gs.p[b + 1u] % GS_NMDST;
+        int a = (int)gs.p[b + 2u] - 64, y = VY + 18 + (int)r * 25, sel = r == ui.mrow, live = src && a, w = (a < 0 ? -a : a) * 34 / 64, mx = VX + 111;
+        char nb[4];
+        ui_glass(VX + 3, y, VW - 6, 22, sel ? C_O5 : C_S0);
+        ui_num(nb, (int)r + 1);
+        fb_text(VX + 8, y + 5, nb, sel ? C_HOT : C_O6);
+        ui_fit_c(VX + 48, y + 5, GS_MSRC_NAME[src], live ? C_INK : C_DIM, 60);
+        fb_hline(mx - 34, y + 11, 69, C_K3);
+        fb_vline(mx, y + 7, 9, C_DIM);
+        if (live) {
+            fb_rect(a < 0 ? mx - w : mx, y + 10, w + 1, 3, C_O5);
+            fb_spark(a < 0 ? mx - w : mx + w, y + 11, 2 + (int)((now >> 8) & 1u), C_HOT);
+        }
+        ui_fit_c(VX + 182, y + 5, GS_MDST_NAME[to], live ? C_INK : C_DIM, 60);
+    }
 }
 
 static void vz_lfo(uint32_t now)
@@ -2023,7 +2138,7 @@ static void ui_status(uint32_t now)
 static void ui_cpu(void)
 {
     char b[28], *p = b;
-    if (!sk_cpu_max && !sk_late)
+    if (!sk_late)                                                           /* (only when a block of sound has come late) */
         return;
     p = ui_str(p, "CPU ");
     p = ui_num(p, (int)sk_cpu_pct);
@@ -2034,7 +2149,7 @@ static void ui_cpu(void)
         p = ui_num(p, (int)sk_late);
     }
     *p = 0;
-    fb_micro(60, 8, b, C_S2, 0);
+    fb_micro_r(VX + VW - 4, VY + VH - 8, b, C_R4, 0);
 }
 
 /* A world's title: its emblem in chrome inside a ring of ticks, the name on a bar of chrome, the world's own name under it. It is the
@@ -2139,6 +2254,9 @@ static void ui_draw(uint32_t now)
         break;
     case PG_ENV2:
         vz_env(P_FA, P_FD, P_FS, P_FR, now, 1);
+        break;
+    case PG_MOD:
+        vz_matrix(now);
         break;
     case PG_LFO:
         vz_lfo(now);
@@ -2285,6 +2403,36 @@ static void ui_draw(uint32_t now)
                 ui_ov_m = 1;
                 ui_plate(3, pg->k[3], 255, now, 1);
                 fb_text_c(cx, 156 + 31, gs.psnd[gs.pcur] ? "OWN" : "SHARED", gs.psnd[gs.pcur] ? C_HOT : C_INK);
+            }
+            ui_ov_m = 0;
+        } else if (ui.page == PG_MOD) {
+            char b[12], *q = b;
+            uint32_t mb = P_M1S + 3u * ui.mrow;
+            int cx = 6 + (int)i * 58 + 27, a = (int)gs.p[mb + 2u] - 64;
+            if (i == 0u) {
+                ui_num(b, ui.mrow + 1);
+                ui_ov_v = ui.mrow;
+                ui_ov_m = GS_NMOD - 1;
+                ui_plate(0, pg->k[0], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
+            } else if (i == 1u) {
+                ui_ov_v = gs.p[mb];
+                ui_ov_m = GS_NMSRC - 1;
+                ui_plate(1, pg->k[1], 255, now, 1);
+                ui_fit_c(cx, 156 + 31, GS_MSRC_NAME[gs.p[mb] % GS_NMSRC], gs.p[mb] ? C_INK : C_DIM, 54);
+            } else if (i == 2u) {
+                ui_ov_v = gs.p[mb + 1u];
+                ui_ov_m = GS_NMDST - 1;
+                ui_plate(2, pg->k[2], 255, now, 1);
+                ui_fit_c(cx, 156 + 31, GS_MDST_NAME[gs.p[mb + 1u] % GS_NMDST], C_INK, 54);
+            } else {
+                if (a > 0)
+                    *q++ = '+';
+                ui_num(q, a);
+                ui_ov_v = gs.p[mb + 2u];
+                ui_ov_m = 127;
+                ui_plate(3, pg->k[3], 255, now, 1);
+                fb_text2_c(cx, 156 + 27, a ? b : "0", a ? C_HOT : C_INK, 0);
             }
             ui_ov_m = 0;
         } else if (ui.page == PG_PERF && i < 3u) {
