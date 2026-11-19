@@ -190,29 +190,47 @@ static uint32_t gs_s16s(void) { return gs_s16() >> GS_Q; }          /* .. in who
 /* An outside clock (MIDI: 24 ticks a beat, with Start and Stop). While its ticks come, they are the time: each one is worth a
  * sixth of a sixteenth, the clocks run at the tempo the ticks have (measured over a beat and shown as the BPM) and are steered so
  * that what a tick owes has been played out just as the next one lands, and nothing here drifts from the machine that sends them.
- * Half a second with no tick and the instrument's own clock takes over again. Called from the audio interrupt, between blocks. */
+ * Half a second with no tick and the instrument's own clock takes over again. Called from the audio interrupt, between blocks.
+ *
+ * gs_sync says whether to listen: INTERNAL never does (the ticks, Start, Continue and Stop are let go); AUTO follows the ticks while
+ * they come and its own tempo when they do not; EXTERNAL follows only them, and with none coming the sequence and the arp wait
+ * where they are (the gate stands open meanwhile, so a held note is not shut off by a step that never ends). */
+enum { GS_SYNC_INT, GS_SYNC_EXT, GS_SYNC_AUTO, GS_NSYNC };
+static const char *const GS_SYNC_NAME[GS_NSYNC] = {"INTERNAL", "EXTERNAL", "AUTO"};
+static uint8_t gs_sync = GS_SYNC_AUTO;
+#define GS_EXT_WAIT() (gs_sync == GS_SYNC_EXT && !gs_ext.on)
 static struct {
-    uint8_t on, start, tk;               /* ticks are coming; a Start waits for the next tick; which tick of the sixteenth is next (0..5) */
+    uint8_t on, start, tk;               /* ticks are coming; a Start (1) or a Continue (2) waits for the next tick; which tick of the sixteenth is next (0..5) */
     int32_t pend;                        /* time the ticks have given that is not played yet, in 1/256 samples */
     uint32_t cnt;                        /* samples since the last tick */
     uint32_t per;                        /* samples a tick, x256, smoothed */
     uint32_t beat_n, beat_s;             /* ticks and samples in the beat being measured */
+    uint8_t beats;                       /* beats measured since the ticks began (the first sets the tempo outright, the rest are smoothed in) */
 } gs_ext;
 static void gs_seq_start(void);
 static void gs_seq_stop(void);
+static void gs_seq_cont(void);
+static void gs_ext_lost(void);
+static void gs_ext_halt(void);
 static void gs_ext_tick(void)
 {
+    if (gs_sync == GS_SYNC_INT)
+        return;
     if (!gs_ext.on) {
         gs_ext.on = 1;
         gs_ext.pend = 0;
         gs_ext.per = (gs_s16() / 6u);
         gs_ext.beat_n = gs_ext.beat_s = 0;
         gs_ext.tk = 0;
+        gs_ext.beats = 0;
     } else {
         gs_ext.beat_s += gs_ext.cnt;
         if (++gs_ext.beat_n >= 24u) {                              /* a beat's worth: the tempo it had */
             uint32_t per = (gs_ext.beat_s << 8) / 24u, bpm;
-            gs_ext.per += (int32_t)(per - gs_ext.per) / 2;
+            if (!gs_ext.beats)
+                gs_ext.per = per, gs_ext.beats = 1;
+            else
+                gs_ext.per += (int32_t)(per - gs_ext.per) / 2;
             bpm = ((gs_rate / 400u) * 256u + gs_ext.per / 2u) / gs_ext.per;    /* rate * 60 / 24 / samples-a-tick */
             if (bpm >= 40u && bpm <= 250u) {
                 uint32_t exact = (gs_rate / 400u) * 256u * 4u / gs_ext.per;      /* in quarters of a BPM */
@@ -223,12 +241,16 @@ static void gs_ext_tick(void)
         }
     }
     gs_ext.cnt = 0;
-    if (gs_ext.start) {                                            /* the first tick after Start is the downbeat */
+    if (gs_ext.start == 1u) {                                      /* the first tick after Start is the downbeat */
         gs_ext.start = 0;
         gs_seq_start();
         gs_ext.tk = 1;
         gs_ext.pend = (int32_t)(gs_s16() / 6u);
         return;
+    }
+    if (gs_ext.start == 2u) {                                      /* .. after Continue: on from where it stopped, on this tick */
+        gs_ext.start = 0;
+        gs_seq_cont();
     }
     if (gs_ext.tk == 0u) {                                         /* the tick a sixteenth begins on: the sixteenth clock should be just there, and what is owed is set so that it is */
         uint32_t s16 = gs_s16();
@@ -238,19 +260,32 @@ static void gs_ext_tick(void)
         gs_ext.pend += (int32_t)(gs_s16() / 6u);                   /* a tick: a sixth of a sixteenth to play before the next */
     gs_ext.tk = (uint8_t)((gs_ext.tk + 1u) % 6u);
 }
-static void gs_ext_start(void) { gs_ext.start = 1; }
-static void gs_ext_stop(void) { gs_ext.start = 0; gs_seq_stop(); }
+static void gs_ext_start(void) { if (gs_sync != GS_SYNC_INT) gs_ext.start = 1; }
+static void gs_ext_cont(void) { if (gs_sync != GS_SYNC_INT) gs_ext.start = 2; }
+static void gs_ext_stop(void)
+{
+    if (gs_sync == GS_SYNC_INT)
+        return;
+    gs_ext.start = 0;
+    gs_ext_halt();
+}
 /* how far the clocks move in a block of n samples */
 static uint32_t gs_ext_step(uint32_t n)
 {
     uint32_t nq = n << GS_Q;
     int32_t unit, rem, take;
+    if (gs_sync == GS_SYNC_INT)
+        gs_ext.on = gs_ext.start = 0;
     if (!gs_ext.on)
-        return nq;
+        return GS_EXT_WAIT() ? 0u : nq;                            /* (EXTERNAL with no clock: the clocks stand still) */
     gs_ext.cnt += n;
-    if (gs_ext.cnt > 22050u) {                                     /* the ticks have stopped */
+    if (gs_ext.cnt > 22050u) {                                     /* the ticks have stopped: half a second without one */
         gs_ext.on = 0;
-        return nq;
+        if (gs_sync == GS_SYNC_EXT) {                              /* EXTERNAL waits: nothing may be left sounding while it does */
+            gs_ext_lost();
+            return 0u;
+        }
+        return nq;                                                 /* AUTO: its own tempo, from where the ticks left it */
     }
     unit = (int32_t)(gs_s16() / 6u);
     {                                                              /* what should still be owed this long after a tick: all of it at the tick, none by the next */
@@ -981,6 +1016,40 @@ static void gs_seq_stop(void)
     gs.pnext = 255;
 }
 
+/* an outside Continue: on from the step it stopped in (a sequence that never ran starts at step 1) */
+static void gs_seq_cont(void)
+{
+    if (gs.srun)
+        return;
+    gs.srun = 1;
+    gs.snote = -1;
+    gs.sslide = 0;
+    gs.scount = 0;
+}
+/* the outside clock has gone while only it is followed: what the sequence and the arp were sounding is let go */
+static void gs_ext_lost(void)
+{
+    if (gs.snote >= 0)
+        gs_seq_off();
+    if (gs.acur >= 0) {
+        gs_note_off((uint32_t)gs.acur);
+        gs.acur = -1;
+    }
+}
+/* an outside Stop: the sequence stops where it is, and a chord that is only held by HOLD (no key down) is let go with it */
+static void gs_ext_halt(void)
+{
+    gs_seq_stop();
+    if (gs.acur >= 0) {
+        gs_note_off((uint32_t)gs.acur);
+        gs.acur = -1;
+    }
+    if (!gs.phys && gs.nh) {
+        gs.nh = 0;
+        gs_all_off();
+    }
+}
+
 /* start: with recording armed a bar of clicks comes first (the sequence waits for its downbeat) */
 static void gs_seq_start(void)
 {
@@ -1199,6 +1268,8 @@ static void gs_tick(uint32_t n)
                 gs.gate_t = 0;
             gs.gate_g += (int32_t)(((int64_t)(gs.gate_t - gs.gate_g) * (int32_t)GS_K[gs.p[P_GSMO]]) >> 16);
         }
+        if (GS_EXT_WAIT())                                         /* waiting for an outside clock: the gate stands open */
+            gs.gate_t = gs.gate_g = 32767;
     }
     /* the sequencer */
     if (gs.srun && !gs.scount) {

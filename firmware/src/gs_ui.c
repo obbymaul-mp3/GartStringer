@@ -23,7 +23,7 @@
 /* the panel's labels and encoders */
 enum { SB_FX, SB_SCL, SB_ENV, SB_LFO, SB_EDIT, SB_GLO, SB_HOME, SB_SAVE, SB_ARP, SB_SEQ, SB_PLAY, SB_REC, SB_OCTDN, SB_OCTUP, SB_N };
 enum { SE_SELECT, SE_ALGO, SE_PRESET, SE_K1, SE_K2, SE_K3, SE_K4, SE_N };
-enum { PG_HOME, PG_OSC, PG_OSC2, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_MOD, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SAVE, PG_N };
+enum { PG_HOME, PG_OSC, PG_OSC2, PG_FLT, PG_ENV, PG_ENV2, PG_LFO, PG_MOD, PG_FX, PG_FX2, PG_ARP, PG_GATE, PG_GLITCH, PG_SEQ, PG_SEQ4, PG_SEQ2, PG_SEQ3, PG_CHORD, PG_PERF, PG_SYNC, PG_SAVE, PG_N };
 #define UI_SEQP() (ui.page == PG_SEQ || ui.page == PG_SEQ4 || ui.page == PG_SEQ2 || ui.page == PG_SEQ3)   /* one of the sequencer's pages is open */
 
 static int32_t sk_in_enc(uint32_t role);
@@ -67,6 +67,7 @@ static const ui_page_t UI_PG[PG_N] = {
     {"SEQ TOOLS", {"CLEAR", "COPY", "FILL", "SHIFT"}, {255, 255, 255, 255}, 255, 1},
     {"CHORDS", {"KEY", "SCALE", "LAYOUT", "VOICE"}, {P_CKEY, P_CSCL, P_CLAY, P_CVOI}, P_CON, 0},
     {"PERFORM", {"MACRO", "KIND", "DJ FILT", "PUMP"}, {255, 255, 255, P_GDEP}, 255, 0},
+    {"CLOCK", {"SYNC", "CLOCK", "TEMPO", "SONG"}, {255, 255, 255, 255}, 255, 0},
     {"SAVE", {"SLOT", "DO", "KEYS", "BATTERY"}, {255, 255, 255, 255}, 255, 0},
 };
 
@@ -81,6 +82,8 @@ static struct {
     int8_t shift;                        /* what the pattern has been shifted by (shown) */
     uint8_t keys_down[27], kchord[27], con_prev;
     uint8_t mrow;                        /* the matrix page: the route the knobs are on */
+    uint8_t g_dirty;                     /* the sync was changed and is not written yet */
+    uint32_t g_t, arp_t;                 /* when it was changed; when ARP went down on its own page (held: the clock page) */
     uint8_t bank;                        /* MIDI: the bank a program change picks from (128 patches each) */
     uint8_t silent;                      /* the keys go to the USB host only: nothing here sounds (not saved: off at power-on) */
     uint8_t kraw[27], kmute[27];         /* each key held: the note it sent to the host, and that it was silent here */
@@ -464,10 +467,33 @@ static void ui_sv_slot(uint32_t slot)
     for (i = 0; i < SV_SLOT; i++)                           /* an older slot is the start of a 1.2 one: the rest is "nothing extra" */
         s4.d[i] = o[i];
 }
+/* What belongs to the instrument and not to a slot (so far: the sync) has a sector of its own, after the slots'. It is read at
+ * power-on and written a moment after it changes, once nothing is playing (a write makes the output silent for a moment). */
+#define SV_GLOB (SV_NEW0 + SV_N)
+#define SG_MAGIC 827806535u                                 /* "GSG1" */
+static struct { uint32_t magic; uint8_t sync, r[3]; uint32_t chk; } sg;
+static uint32_t sg_chk(void) { return (sg.magic ^ ((uint32_t)sg.sync * 2654435761u)) + 97u; }
+static void ui_glob_load(void)
+{
+    if (sk_store_read(SV_GLOB, &sg, sizeof sg) == 0 && sg.magic == SG_MAGIC && sg.chk == sg_chk() && sg.sync < GS_NSYNC)
+        gs_sync = sg.sync;
+}
+static void ui_glob_tick(uint32_t now)
+{
+    if (!ui.g_dirty || now - ui.g_t < 2000u || gs.srun || gs.nh || gs_ext.on)
+        return;
+    ui.g_dirty = 0;
+    sg.magic = SG_MAGIC;
+    sg.sync = gs_sync;
+    sg.r[0] = sg.r[1] = sg.r[2] = 0;
+    sg.chk = sg_chk();
+    sk_store_write(SV_GLOB, &sg, sizeof sg);
+}
 static void ui_store_load(void)
 {
     uint32_t i;
     sv_full = 0;
+    ui_glob_load();
     sv_old_load();
     sv_sec = 255;
     for (i = 0; i < SV_N; i++) {
@@ -624,6 +650,7 @@ static void ui_input(uint32_t now)
     uint32_t held, pr, keys, kp, i;
     int32_t d;
     ui_midi(now);
+    ui_glob_tick(now);
     sk_in_buttons(&held, &pr);
     keys = 0;
     kp = sk_in_keys(&keys);
@@ -656,6 +683,8 @@ static void ui_input(uint32_t now)
         else if (ui.page == PG_SEQ2)
             ui.page = PG_SEQ3;
         else if (ui.page == PG_SEQ3)
+            ui.page = PG_SYNC;                                      /* .. the clock (the sync), out */
+        else if (ui.page == PG_SYNC)
             ui.page = PG_HOME;
         else {
             ui.page = PG_SEQ;
@@ -666,15 +695,28 @@ static void ui_input(uint32_t now)
     if (pr & (1u << SB_GLO))
         ui_page_press(PG_GLITCH, PG_GATE);
     if (pr & (1u << SB_ARP)) {
-        if (ui.page == PG_ARP) {                                    /* on the page: it switches the arp */
+        if (ui.page == PG_ARP) {                                    /* on the page: it switches the arp (held: the clock page, below) */
             gs_set(P_AON, !gs.p[P_AON]);
             ui_toast(gs.p[P_AON] ? "ARP ON" : "ARP OFF", now);
-        } else {
+            ui.arp_t = now ? now : 1u;
+        } else if (ui.page == PG_SYNC)
+            ui.page = PG_ARP;                                       /* (back from the clock page: the arp is left as it is) */
+        else {
             ui.page = PG_ARP;
             if (!gs.p[P_AON]) {
                 gs_set(P_AON, 1);
                 ui_toast("ARP ON", now);
             }
+        }
+    }
+    if (ui.arp_t) {                                                 /* ARP held on its page: the press is taken back, and the clock page opens */
+        if (!(held & (1u << SB_ARP)) || ui.page != PG_ARP)
+            ui.arp_t = 0;
+        else if (now - ui.arp_t > 600u) {
+            ui.arp_t = 0;
+            gs_set(P_AON, !gs.p[P_AON]);
+            ui.page = PG_SYNC;
+            ui_toast("CLOCK", now);
         }
     }
     if (pr & (1u << SB_SAVE)) {
@@ -865,6 +907,18 @@ static void ui_input(uint32_t now)
                 gs_set(b + i - 1u, (int)gs.p[b + i - 1u] + (d > 0 ? 1 : -1));
             continue;
         }
+        if (ui.page == PG_SYNC) {                                   /* the clock: K1 is the sync; the other rows only tell */
+            if (i == 0u) {
+                int v = ui_clamp((int)gs_sync + (d > 0 ? 1 : -1), 0, GS_NSYNC - 1);
+                ui.k_t[0] = now;
+                if (v != (int)gs_sync) {
+                    gs_sync = (uint8_t)v;
+                    ui.g_dirty = 1;
+                    ui.g_t = now;
+                }
+            }
+            continue;
+        }
         if (ui.page == PG_PERF) {
             ui.k_t[i] = now;
             if (i == 0u)
@@ -1026,7 +1080,7 @@ static void ui_input(uint32_t now)
         static const uint8_t LB[SB_N] = {PG_FX, PG_FLT, PG_ENV, PG_LFO, PG_OSC, PG_GLITCH, PG_HOME, PG_SAVE, PG_ARP, PG_SEQ, 255, 255, 255, 255};
         for (i = 0; i < SB_N; i++) {
             uint32_t lv = 0;
-            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_EDIT && ui.page == PG_OSC2) || (i == SB_LFO && ui.page == PG_MOD) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
+            if (LB[i] != 255u && (ui.page == LB[i] || (i == SB_ENV && ui.page == PG_ENV2) || (i == SB_EDIT && ui.page == PG_OSC2) || (i == SB_LFO && ui.page == PG_MOD) || (i == SB_FX && ui.page == PG_FX2) || (i == SB_GLO && ui.page == PG_GATE) || (i == SB_SEQ && UI_SEQP()) || ((i == SB_SEQ || i == SB_ARP) && ui.page == PG_SYNC) || (i == SB_HOME && (ui.page == PG_CHORD || ui.page == PG_PERF))))
                 lv = 3;
             else if (i == SB_ARP && gs.p[P_AON])
                 lv = 2;
@@ -1115,7 +1169,7 @@ static void vz_back(uint32_t now)
 {
     int i, hy = VY + 32, cx = VX + VW / 2, fh = VY + VH - hy;
     int flat = ui.page == PG_HOME || ui.page == PG_FLT || ui.page == PG_ENV || ui.page == PG_ENV2 || ui.page == PG_LFO || ui.page == PG_MOD ||
-               ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD || ui.page == PG_FX || ui.page == PG_FX2 || UI_SEQP();
+               ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD || ui.page == PG_FX || ui.page == PG_FX2 || ui.page == PG_SYNC || UI_SEQP();
     uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
     fb_clip(VX, VY, VX + VW, VY + VH);
     fb_rect(VX, VY, VW, VH, C_BG);
@@ -2003,6 +2057,37 @@ static void vz_save(uint32_t now)
 
 /* the performance page: the macro as a column that fills, with what it is doing named; the DJ filter as the band it lets through; the
  * pump as a bar that ducks on the beat */
+/* The clock page: whose time is being kept. The tempo, large (the outside clock's, measured, while it is followed); under it what
+ * is happening in words; along the foot the 24 pulses of the beat, filling as they come, and the bar's four beats as diamonds. */
+static const char *ui_sync_state(void)
+{
+    return gs_sync == GS_SYNC_INT ? "OWN TEMPO" : gs_ext.on ? "LOCKED" : gs_sync == GS_SYNC_EXT ? "WAITING" : "NO CLOCK";
+}
+static void vz_sync(uint32_t now)
+{
+    char b[8];
+    int i, on = gs_ext.on, wait = GS_EXT_WAIT(), beat = (gs.sixteenth >> 2) & 3;
+    fb_well(VX + 2, VY + 15, VW - 4, VH - 17);
+    if (wait)
+        ui_str(b, "---");
+    else
+        ui_num(b, gs.bpm);
+    fb_text2_c(VX + 56, VY + 24, b, wait ? C_DIM : on ? C_HOT : C_O5, 0);
+    fb_micro_c(VX + 56, VY + 50, on ? "BPM FROM CLOCK" : wait ? "NO CLOCK YET" : "BPM", on ? C_R4 : C_INK2, 1);
+    if (on && ((gs.sixteenth & 3u) < 2u))
+        fb_heart(VX + 14, VY + 30);
+    ui_text(VX + 112, VY + 22, on ? "LOCKED TO" : wait ? "WAITING FOR" : gs_sync == GS_SYNC_INT ? "KEEPING ITS" : "NO CLOCK:", on ? C_HOT : C_INK2);
+    ui_text(VX + 112, VY + 36, on || wait ? "MIDI CLOCK" : "OWN TEMPO", on ? C_HOT : wait ? (((now >> 9) & 1u) ? C_R4 : C_R2) : C_O5);
+    for (i = 0; i < 24; i++) {                                               /* the beat's pulses */
+        int x = VX + 10 + i * 7 + (i / 6) * 9, lit = on && (uint32_t)i <= gs_ext.beat_n % 24u;
+        fb_rect(x, VY + 66, 5, 8, lit ? (i % 6 ? C_O5 : C_R3) : C_K3);
+        if (lit)
+            fb_hline(x, VY + 66, 5, i % 6 ? C_O7 : C_R4);
+    }
+    for (i = 0; i < 4; i++)
+        fb_diamond(VX + 28 + i * 51, VY + 80, 2, !wait && (gs.srun || on) && i == beat ? C_R3 : C_K3);
+    (void)now;
+}
 static void vz_perf(uint32_t now)
 {
     int m = gs.mac, f = gs.djf, k, x0 = VX + 92, w = 122, y0 = VY + 14, h = 44;
@@ -2177,9 +2262,16 @@ static void ui_header(uint32_t now)
     ui_text(21, 3, UI_WORLD[w], C_INK2);
     if (gs.mac || gs.djf != 64u)                                                     /* the performance page is doing something */
         fb_micro(152, 9, "FX", ((now >> 8) & 1u) ? C_HOT : C_R3, 0);
-    ui_num(b, gs.bpm);
-    ui_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_O5);
-    fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_O5, 0);        /* (EXT: the tempo is an outside clock's) */
+    if (GS_EXT_WAIT()) {                                                            /* only an outside clock is followed, and none comes */
+        ui_text_r(199, 3, "---", C_DIM);
+        fb_micro(202, 9, "EXT", ((now >> 9) & 1u) ? C_R4 : C_R2, 0);
+    } else {
+        ui_num(b, gs.bpm);
+        ui_text_r(199, 3, b, gs_ext.on || (ui.hud_t && now - ui.hud_t < 600u) ? C_HOT : C_O5);
+        fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_R4 : C_O5, 0);     /* (EXT: the tempo is an outside clock's) */
+        if (gs_ext.on && (gs.sixteenth & 3u) < 2u)                                  /* locked: a heart that beats with it */
+            fb_heart(165, 7);
+    }
     ui_battery(228, 10, now);
 }
 
@@ -2380,6 +2472,9 @@ static void ui_draw(uint32_t now)
     case PG_PERF:
         vz_perf(now);
         break;
+    case PG_SYNC:
+        vz_sync(now);
+        break;
     case PG_CHORD:
         vz_chord(now);
         break;
@@ -2392,6 +2487,8 @@ static void ui_draw(uint32_t now)
     if (ui.page != PG_SAVE && ui.page != PG_CHORD && !UI_SEQP())
     {
         ui_tab(VX, VY, pg->name);
+        if (ui.page == PG_ARP)                                              /* (how to get to the sync from here) */
+            fb_micro_r(VX + VW - 12, VY + 4, "HOLD ARP: CLOCK", C_DIM, 1);
     }
     if (ui.page == PG_HOME || ui.page == PG_OSC) {
         int mw = fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]);
@@ -2475,6 +2572,19 @@ static void ui_draw(uint32_t now)
                 ui_num(q, a);
                 ui_row(3, pg->k[3], b, gs.p[mb + 2u], 127, now, a ? 2 : 0);
             }
+        } else if (ui.page == PG_SYNC) {
+            if (i == 0u)
+                ui_row(0, pg->k[0], GS_SYNC_NAME[gs_sync % GS_NSYNC], 0, 0, now, 1);
+            else if (i == 1u)
+                ui_row(1, pg->k[1], ui_sync_state(), 0, 0, now, gs_ext.on ? 2 : 4);
+            else if (i == 2u) {
+                if (GS_EXT_WAIT())
+                    ui_str(b, "---");
+                else
+                    ui_num(b, gs.bpm);
+                ui_row(2, pg->k[2], b, 0, 0, now, gs_ext.on ? 2 : 4);
+            } else
+                ui_row(3, pg->k[3], gs.srun ? "PLAYING" : "STOPPED", 0, 0, now, gs.srun ? 2 : 4);
         } else if (ui.page == PG_PERF && i < 3u) {
             if (i == 0u) {
                 ui_num(b, gs.mac);

@@ -61,7 +61,7 @@ void fm1_timer5_irq(void)
 }
 
 /* What MIDI has brought, from the jack or USB, taken between halves of audio: the clock's ticks, Start, Continue and Stop go to
- * the tempo (gs_synth.c gs_ext_*); the rest is let go. If the ring ran over, it is emptied. */
+ * the tempo (gs_synth.c gs_ext_*, which lets them go when the sync is INTERNAL); control and program changes go to the main loop; the rest is let go. If the ring ran over, it is emptied. */
 static void sk_midi_note(int on, uint32_t note, uint32_t vel) { fm1_usb_midi_note(on, note, vel); }
 
 static void sk_midi_drain(void)
@@ -71,8 +71,10 @@ static void sk_midi_drain(void)
         mi_r++;
         if (st == 0xF8u)
             gs_ext_tick();
-        else if (st == 0xFAu || st == 0xFBu)
+        else if (st == 0xFAu)
             gs_ext_start();
+        else if (st == 0xFBu)
+            gs_ext_cont();
         else if (st == 0xFCu)
             gs_ext_stop();
         else if ((st & 0xF0u) == 0xB0u || (st & 0xF0u) == 0xC0u)             /* a control or program change: the main loop's */

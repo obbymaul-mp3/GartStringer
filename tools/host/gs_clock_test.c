@@ -138,6 +138,122 @@ static int ext(double bpm)
     return bad != 0;
 }
 
+/* the sync and the outside transport: Start, Stop and Continue; the clock going away in AUTO and in EXTERNAL; INTERNAL deaf to it */
+static double sm_next, sm_pos;
+static uint32_t sm_steps;
+static uint8_t sm_ls, sm_first;
+static int sm_zero;                                                /* which step change (from 0) was the first to be step 1 of the pattern: -1 none */
+static void sm_feed(double ms, double bpm)
+{
+    int32_t buf[2 * SK_CTL];
+    double per = bpm > 0 ? 44100.0 * 60.0 / bpm / 24.0 : 0, end = sm_pos + ms * 44.1;
+    if (sm_next < sm_pos)
+        sm_next = sm_pos;
+    sm_steps = 0;
+    sm_first = 255;
+    sm_zero = -1;
+    for (; sm_pos < end; sm_pos += SK_CTL) {
+        if (((uint32_t)sm_pos & 127u) == 0u)
+            while (per > 0 && sm_next <= sm_pos) {
+                gs_ext_tick();
+                sm_next += per;
+            }
+        sk_render(buf, SK_CTL);
+        if (gs.srun && gs.sstep != sm_ls) {
+            sm_ls = gs.sstep;
+            if (sm_first == 255)
+                sm_first = gs.sstep;
+            if (gs.sstep == 0 && sm_zero < 0)
+                sm_zero = (int)sm_steps;
+            sm_steps++;
+        }
+    }
+}
+static int sm_sounding(void)
+{
+    int i, n = 0;
+    for (i = 0; i < GS_NV; i++)
+        n += gs.v[i].on != 0;
+    return n;
+}
+#define SM_CHECK(c, what) do { if (!(c)) { printf("  sync: %s: FAIL (bpm %u first %u steps %u nh %u sounding %d acur %d on %u)\n", what, gs.bpm, sm_first, sm_steps, gs.nh, sm_sounding(), gs.acur, gs_ext.on); bad = 1; } } while (0)
+static int sync_modes(void)
+{
+    int bad = 0, i;
+    uint8_t s0;
+    gs_init();
+    gs_load(0);
+    gs_rate = 44100000u;
+    sk_f.ready = 0;
+    gs_set_hold(0);
+    gs_release_all();
+    memset(&gs_ext, 0, sizeof gs_ext);
+    for (i = 0; i < 16; i++)
+        gs.sp[0][i] = SP_MAKE(12 + (i % 5), 0, 0);
+    gs.spl[0] = 16;
+    sm_pos = sm_next = 0;
+    sm_ls = 255;
+    /* AUTO */
+    gs_sync = GS_SYNC_AUTO;
+    gs.bpm = 100;
+    gs_ext_start();
+    sm_feed(2000, 120);
+    SM_CHECK(gs.srun && sm_first == 0 && sm_steps >= 15 && sm_steps <= 17, "Start plays from step 1, in the clock's time");
+    SM_CHECK(gs.bpm == 120 && gs_ext.on, "the tempo shown is the clock's");
+    gs_ext_stop();
+    s0 = gs.sstep;
+    sm_feed(700, 120);
+    SM_CHECK(!gs.srun && sm_steps == 0 && sm_sounding() == 0 && gs.snote < 0, "Stop stops it and nothing is left sounding");
+    gs_ext_cont();
+    sm_feed(1000, 120);
+    SM_CHECK(gs.srun && sm_first == (uint8_t)((s0 + 1) % 16) && sm_steps >= 7 && sm_steps <= 9, "Continue goes on from where it stopped");
+    gs_ext_start();
+    sm_feed(500, 120);
+    SM_CHECK(gs.srun && sm_zero >= 0 && sm_zero <= 1, "Start again is step 1 again");
+    sm_feed(1500, 0);                                              /* the clock goes away */
+    SM_CHECK(!gs_ext.on && gs.srun && sm_steps >= 8, "AUTO: without the clock it carries on at its own tempo");
+    /* EXTERNAL */
+    gs_sync = GS_SYNC_EXT;
+    sm_feed(1000, 120);
+    SM_CHECK(gs_ext.on && sm_steps >= 7 && sm_steps <= 9, "EXTERNAL follows the clock");
+    sm_feed(700, 0);
+    s0 = gs.sstep;
+    sm_feed(1500, 0);
+    SM_CHECK(!gs_ext.on && gs.sstep == s0 && sm_steps == 0, "EXTERNAL: without the clock the sequence waits");
+    SM_CHECK(sm_sounding() == 0 && gs.snote < 0 && gs.gate_t == 32767, "EXTERNAL: nothing hangs while it waits, and the gate is open");
+    sm_feed(1000, 120);
+    SM_CHECK(gs_ext.on && sm_steps >= 6 && sm_steps <= 9, "EXTERNAL: the clock back, it goes on");
+    gs_ext_stop();
+    /* a chord held by HOLD under the arp: an outside Stop lets it go */
+    gs_sync = GS_SYNC_AUTO;
+    gs_set(P_AON, 1);
+    gs_set_hold(1);
+    gs_key(60, 1); gs_key(64, 1); gs_key(60, 0); gs_key(64, 0);
+    sm_feed(600, 120);
+    SM_CHECK(gs.nh == 2, "(the arp holds its chord)");
+    gs_ext_stop();
+    sm_feed(1500, 120);                                            /* (long enough for the release to end) */
+    SM_CHECK(gs.nh == 0 && sm_sounding() == 0 && gs.acur < 0, "Stop lets a held arp chord go");
+    gs_set_hold(0);
+    gs_set(P_AON, 0);
+    /* INTERNAL */
+    sm_feed(700, 0);
+    gs_sync = GS_SYNC_INT;
+    gs.bpm = 100;
+    gs_ext_start();
+    sm_feed(1500, 133);
+    SM_CHECK(!gs_ext.on && !gs.srun && gs.bpm == 100, "INTERNAL: the clock and Start are let go, the tempo is its own");
+    gs_seq_start();
+    sm_ls = 255;
+    sm_feed(3000, 133);
+    SM_CHECK(sm_steps >= 19 && sm_steps <= 21, "INTERNAL: the sequence runs at its own tempo with a clock coming in");   /* 100 bpm: 20 sixteenths in 3 s */
+    gs_seq_stop();
+    gs_sync = GS_SYNC_AUTO;
+    memset(&gs_ext, 0, sizeof gs_ext);
+    printf("sync and transport: %s\n", bad ? "FAIL" : "ok");
+    return bad;
+}
+
 int main(void)
 {
     static const int B[] = {60, 97, 120, 124, 128, 133, 138, 140, 174};
@@ -151,6 +267,7 @@ int main(void)
     bad |= ext(126.3);
     bad |= ext(140.0);
     bad |= ext(87.5);
+    bad |= sync_modes();
     bad |= rec(124);
     bad |= rec(138);
     printf(bad ? "CLOCK FAIL\n" : "clock ok\n");

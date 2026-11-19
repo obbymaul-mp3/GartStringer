@@ -103,6 +103,7 @@ static void write_wav(const char *f)
     fwrite(wav, 4, wav_n, o);
     fclose(o);
 }
+static double hs_clk_per, hs_clk_next, hs_pos;                       /* an outside clock for the tests: samples a tick (0: none) */
 static void run(uint32_t ms)
 {
     uint32_t end = now_ms + ms;
@@ -115,6 +116,11 @@ static void run(uint32_t ms)
         aud_acc -= want * 32u * 1000u;
         while (want--) {
             uint32_t i;
+            while (hs_clk_per > 0 && hs_pos >= hs_clk_next) {
+                gs_ext_tick();
+                hs_clk_next += hs_clk_per;
+            }
+            hs_pos += 32;
             sk_render(buf, 32);
             if (wav_n + 32 > wav_cap) {
                 wav_cap = wav_cap ? wav_cap * 2 : 1u << 20;
@@ -192,6 +198,14 @@ int main(int argc, char **argv)
         } else if (!strncmp(s, "shot:", 5)) {
             run(33);
             write_ppm(s + 5);
+        } else if (!strncmp(s, "clock:", 6)) {                       /* clock:BPM  an outside MIDI clock at that tempo (0: it stops coming) */
+            double bpm = atof(s + 6);
+            hs_clk_per = bpm > 0 ? 44100.0 * 60.0 / bpm / 24.0 : 0;
+            hs_clk_next = hs_pos;
+        } else if (!strncmp(s, "rt:", 3)) {                          /* rt:start | rt:cont | rt:stop  the outside transport */
+            if (!strcmp(s + 3, "start")) gs_ext_start();
+            else if (!strcmp(s + 3, "cont")) gs_ext_cont();
+            else gs_ext_stop();
         } else if (!strncmp(s, "midi:", 5)) {                        /* midi:ST:D1:D2 (decimal): a control or program change in */
             int st = 0, d1 = 0, d2 = 0;
             sscanf(s + 5, "%d:%d:%d", &st, &d1, &d2);
