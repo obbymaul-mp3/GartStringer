@@ -7,14 +7,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GartStringer: a supersaw trance synth for the M-VAVE FM-1</title>
-<meta name="description" content="GartStringer turns the M-VAVE FM-1 into a supersaw trance lead and bass synth: 32 patches, trance gate, arpeggiator, glitch effects and a 90s rave look. No drums, so it plays beside yours. Free and open source.">
-<meta name="theme-color" content="#0a0806">
-<meta property="og:title" content="GartStringer: a supersaw trance synth for the M-VAVE FM-1">
+<title>GartStringer: Sir Obby's synth for the M-VAVE FM-1</title>
+<meta name="description" content="GartStringer turns the M-VAVE FM-1 into a six-voice synth with 160 patches in six worlds, a sequencer, an arpeggiator, a gate and glitch, behind a screen drawn like a late-90s fantasy game. No drums, so it plays beside yours. Free and open source.">
+<meta name="theme-color" content="#0a0420">
+<meta property="og:title" content="GartStringer: Sir Obby's synth for the M-VAVE FM-1">
 <meta property="og:description" content="Supersaw leads, rolling trance bass, a gate, an arpeggiator and glitch. No drums. Free and open source.">
 <meta property="og:image" content="images/home.png">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="preload" href="fonts/Sora.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="fonts/DepartureMono.otf" as="font" type="font/otf" crossorigin>
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
@@ -36,9 +36,11 @@
   <section class="hero" id="install" aria-labelledby="hero-title">
     <div class="container hero__grid">
       <div class="hero__pitch">
-        <h1 id="hero-title" tabindex="-1"><span>GartStringer</span></h1>
-        <p class="hero__lead">Trance, house, techno, garage. No drums.</p>
-        <p class="hero__sub">Six worlds in one firmware for the M-VAVE&nbsp;FM-1. TRANCE: supersaw leads, rolling bass, the gate and the glitch. HOUSE: hazy FM keys, organs, donk bass, one-key chords and a pump. TECHNO: acid lines, metal, drones and noise. GARAGE: reese and organ basses, bell stabs, the shuffle. Built to sit beside your drum machine, and to stay in time with it: on its own clock, or following MIDI clock.</p>
+        <h1 id="hero-title" tabindex="-1"><img src="images/title.png" width="410" height="90" alt="Gartstringer"></h1>
+        <div class="hero__text">
+        <p class="hero__lead">Sir Obby&rsquo;s synth. Six worlds. No drums.</p>
+        <p class="hero__sub">Six worlds in one firmware for the M-VAVE&nbsp;FM-1. TRANCE, a castle at dusk: supersaw leads, rolling bass, the gate and the glitch. HOUSE, a cathedral: hazy FM keys, organs, one-key chords and a pump. TECHNO, a dungeon with its ghosts: acid lines, metal, drones and noise. GARAGE, a shrine on an island: reese and organ basses, bell stabs, the shuffle. AMBIENT, a forest of fireflies: slow pads and glass. BASS, a forge over lava: the heavy end. Built to sit beside your drum machine, and to stay in time with it: on its own clock, or following MIDI clock.</p>
+        </div>
         <div class="installer">
           <div class="row">
             <button class="btn btn--primary btn--lg" id="go" type="button" disabled>Install on your FM-1</button>
@@ -64,7 +66,7 @@
           </div>
         </div>
       </div>
-      <div class="hero__visual shot"><img src="images/home.png" width="480" height="480" alt="The FM-1's screen: the home page in the trance world, a chrome star on black with pink lines, under it the patch name and four knob cards" fetchpriority="high"></div>
+      <div class="hero__visual shot"><img src="images/home.png" width="480" height="480" alt="The FM-1's screen: the home page in the trance world, a castle at dusk under a moon with lit windows, under it the patch name in gold-tiled lettering and four knob rows with stepped gold meters" fetchpriority="high"></div>
     </div>
   </section>
 
@@ -72,18 +74,18 @@
     <div class="container">
       <p class="eyebrow">The sound</p>
       <h2 id="sound-title">Eleven oscillators, six voices, 160 patches, six worlds</h2>
-      <p class="lead">Forty trance patches and twenty-four each of house, techno, garage, ambient and bass. Turn ALGORITHM on the home page to step from one world to the next: the patches, the colours and the scene change, your sequence and your saves stay. Every patch is a starting point: more than fifty parameters sit behind the pages. The screen is a small 3D world in pixels: towers rise and drift with the detune of your oscillator, every effect is a shape that turns and shows its setting, and the save page is a memory card.</p>
+      <p class="lead">Forty trance patches and twenty-four each of house, techno, garage, ambient and bass. Turn ALGORITHM on the home page to step from one world to the next: the patches, the colours and the scene change, your sequence and your saves stay. Every patch is a starting point: more than fifty parameters sit behind the pages. The screen is drawn like a late-90s fantasy game: each world is a place, and the place answers your playing. The castle&rsquo;s windows light, the cathedral&rsquo;s candles leap, the dungeon&rsquo;s ghosts bob, the shrine&rsquo;s gem flares, the forest&rsquo;s fireflies wake and the forge spits lava. The save page is a memory card.</p>
       <div class="grid grid--3">
-        <article class="card"><h3><i class="dot" style="background:var(--pink)"></i>Oscillators</h3><p>Supersaw (seven detuned saws), hyper sync, PWM stack, roll bass and feedback; and FM keys, a drawbar organ, the donk, metal, noise and a reese. Plus a sub. Detune, mix and colour are knobs.</p></article>
-        <article class="card"><h3><i class="dot" style="background:var(--cyan)"></i>Filter</h3><p>A smooth state-variable filter: 12 and 24 dB low-pass, band, high-pass, and a vowel filter for choirs. Two envelopes, one LFO, glide, mono and legato, and a tape control for wow, flutter and a worn top end.</p></article>
-        <article class="card"><h3><i class="dot" style="background:var(--yellow)"></i>Gate and arp</h3><p>A 128-step note sequencer with eight patterns, a metronome and count-in recording, a gate with fourteen patterns and two pumps that duck on the beat like a sidechain, and an arpeggiator with eight patterns. The clock is exact to a fraction of a sample and corrected against the FM-1&rsquo;s crystal, so it holds its tempo beside other machines; send it MIDI clock (the MIDI IN jack, or USB) and it follows that instead, with Start and Stop, and the top bar shows EXT.</p></article>
+        <article class="card"><h3><i class="dot" style="background:var(--hot)"></i>Oscillators</h3><p>Supersaw (seven detuned saws), hyper sync, PWM stack, roll bass and feedback; and FM keys, a drawbar organ, the donk, metal, noise and a reese. Plus a sub. Detune, mix and colour are knobs.</p></article>
+        <article class="card"><h3><i class="dot" style="background:var(--teal)"></i>Filter</h3><p>A smooth state-variable filter: 12 and 24 dB low-pass, band, high-pass, and a vowel filter for choirs. Two envelopes, one LFO, glide, mono and legato, and a tape control for wow, flutter and a worn top end.</p></article>
+        <article class="card"><h3><i class="dot" style="background:var(--gold)"></i>Gate and arp</h3><p>A 128-step note sequencer with eight patterns, a metronome and count-in recording, a gate with fourteen patterns and two pumps that duck on the beat like a sidechain, and an arpeggiator with eight patterns. The clock is exact to a fraction of a sample and corrected against the FM-1&rsquo;s crystal, so it holds its tempo beside other machines; send it MIDI clock (the MIDI IN jack, or USB) and it follows that instead, with Start and Stop, and the top bar shows EXT.</p></article>
       </div>
     </div>
   </section>
 
   <section class="section section--band" id="controls" aria-labelledby="controls-title">
     <div class="container split">
-      <div class="shot"><img src="images/edit.png" width="480" height="480" alt="The effects page: four 3D shapes, one for each effect, over a perspective floor" loading="lazy"></div>
+      <div class="shot"><img src="images/edit.png" width="480" height="480" alt="The effects page: a gold note and its pink echoes shrinking away, and four knob rows: chorus, echo, feedback, reverb" loading="lazy"></div>
       <div>
         <p class="eyebrow">Controls</p>
         <h2 id="controls-title">Four knobs per page</h2>
@@ -96,7 +98,7 @@
           <tr><td>ARP</td><td>Arpeggiator (press again: on / off)</td></tr>
           <tr><td>SEQ</td><td>Step sequencer, up to 128 steps, eight patterns. REC arms it: a bar of count-in with the click, then play and the notes land on the step line. ALGORITHM switches pattern A–H (at the end of the pass). K1 step, K2 note, K3 rest / note / accent / slide, K4 length. With the chords on, each step is a root and plays its chord. Press SEQ again for the step page: K2 repeats the step two to four times in its own time, K3 sets its chance (always, 75, 50 or 25 %), K4 lets the pattern keep a sound of its own. Again for rate, swing, gate and click level, and again for tools: clear, copy, fill, shift.</td></tr>
           <tr><td>GLO</td><td>Glitch (press again: the gate and the pump)</td></tr>
-          <tr><td>HOME</td><td>On the home page ALGORITHM steps through the worlds: TRANCE, HOUSE, TECHNO, GARAGE. Press again for the chord instrument: it shows the key and scale and the chord you play. ALGORITHM switches it on; K1 key, K2 scale (16), K3 layout (white keys = degrees, black keys = chord types, or chord buttons on the low keys; Lock latches), K4 voicing, including the house voicings: sevenths and ninths over a low root, a wide shell, or one minor ninth moved in parallel. Press once more for the performance page: K1 a macro (K2 picks BUILD, WASH, DARK or CRUSH), K3 a DJ filter, K4 the pump; ALGORITHM switches pattern.</td></tr>
+          <tr><td>HOME</td><td>On the home page ALGORITHM steps through the worlds: TRANCE, HOUSE, TECHNO, GARAGE, AMBIENT, BASS. Press again for the chord instrument: it shows the key and scale and the chord you play. ALGORITHM switches it on; K1 key, K2 scale (16), K3 layout (white keys = degrees, black keys = chord types, or chord buttons on the low keys; Lock latches), K4 voicing, including the house voicings: sevenths and ninths over a low root, a wide shell, or one minor ninth moved in parallel. Press once more for the performance page: K1 a macro (K2 picks BUILD, WASH, DARK or CRUSH), K3 a DJ filter, K4 the pump; ALGORITHM switches pattern.</td></tr>
           <tr><td>PLAY</td><td>Hold: the notes keep sounding. On the sequencer pages, or while it runs: run / stop. While it runs the keys move it (key 13 is the root), and REC records into it.</td></tr>
           <tr><td>OCT− / OCT+</td><td>Octave, on every page (turn K1, STEP, to move between bars)</td></tr>
           <tr><td>SAVE</td><td>Eighteen slots for your own patches (every pattern and sound setting)</td></tr>
@@ -111,9 +113,9 @@
       <div>
         <p class="eyebrow">Glitch</p>
         <h2 id="glitch-title">Hold REC and break it</h2>
-        <p class="lead">Stutter, reverse, tape stop and drop-out, on the beat or by chance. Hold REC to fire it by hand; the screen turns red. Drive, bit crush, chorus, a tempo-synced ping-pong echo and a big reverb sit in the same chain.</p>
+        <p class="lead">Stutter, reverse, tape stop and drop-out, on the beat or by chance. Hold REC to fire it by hand. Drive, bit crush, chorus, a tempo-synced ping-pong echo and a big reverb sit in the same chain.</p>
       </div>
-      <div class="shot"><img src="images/glitch.png" width="480" height="480" alt="The glitch page: shards of a cube beside a stuttering wave, and four knobs: odds, length, kind, crush" loading="lazy"></div>
+      <div class="shot"><img src="images/glitch.png" width="480" height="480" alt="The glitch page: a cube in pieces beside a stuttering wave, and four knob rows: odds, length, kind, crush" loading="lazy"></div>
     </div>
   </section>
 
@@ -165,7 +167,7 @@
 
 <footer class="site-footer">
   <div class="container">
-    <p>GartStringer is free software (GPL-3.0). Source: <a href="https://github.com/obbymaul-mp3/GartStringer">github.com/obbymaul-mp3/GartStringer</a>. The FM-1 platform layer builds on Felucca by Leo Kuroshita and Hügelton Instruments; the type is Sora (SIL OFL 1.1). See <a href="firmware/LICENSING.md">LICENSING</a>. Not affiliated with M-VAVE.</p>
+    <p>GartStringer is free software (GPL-3.0). Source: <a href="https://github.com/obbymaul-mp3/GartStringer">github.com/obbymaul-mp3/GartStringer</a>. The FM-1 platform layer builds on Felucca by Leo Kuroshita and Hügelton Instruments; the type is Departure Mono (SIL OFL 1.1); the scenes and the lettering of names are GartStringer&rsquo;s own. See <a href="firmware/LICENSING.md">LICENSING</a>. Not affiliated with M-VAVE.</p>
   </div>
 </footer>
 <script type="module" src="installer.js"></script>

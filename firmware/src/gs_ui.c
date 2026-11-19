@@ -1072,31 +1072,35 @@ static void ui_input(uint32_t now)
 #define VW 222
 #define VH 90
 
-/* a card of dark glass: a soft-cornered panel with a thin edge, a pixel of light along its top */
-/* a panel: black, with a rim. The rim of a panel at rest (edge C_S0) is chrome, bright at the top and dark at the foot with the
- * horizon across its sides; any other edge is that one colour (a panel that is lit, or a warning). */
+/* a panel that floats over the rest (a toast, a pop-up): ink, a line of its edge colour, a dark ground. Square: nothing here is round. */
 static void ui_glass(int x, int y, int w, int h, uint8_t edge)
 {
-    int r, chr = edge == C_S0;
-    uint8_t top = chr ? C_S6 : edge, bot = chr ? C_S1 : edge;
-    fb_rbox(x, y, w, h, 3, C_BG);
-    fb_hline(x + 3, y, w - 6, top);
-    fb_hline(x + 3, y + h - 1, w - 6, bot);
-    for (r = 3; r < h - 3; r++) {
-        uint8_t c = chr ? FB_CHR[1 + r * 13 / (h - 1)] : edge;
-        fb_pset(x, y + r, c);
-        fb_pset(x + w - 1, y + r, c);
-    }
-    fb_pset(x + 1, y + 2, top); fb_pset(x + 2, y + 1, top);
-    fb_pset(x + w - 2, y + 2, top); fb_pset(x + w - 3, y + 1, top);
-    fb_pset(x + 1, y + h - 3, bot); fb_pset(x + 2, y + h - 2, bot);
-    fb_pset(x + w - 2, y + h - 3, bot); fb_pset(x + w - 3, y + h - 2, bot);
+    fb_rect(x + 2, y + 2, w, h, C_OUT);                                       /* its hard shadow */
+    fb_rect(x, y, w, h, C_OUT);
+    fb_rect(x + 1, y + 1, w - 2, h - 2, C_K1);
+    fb_frame(x + 1, y + 1, w - 2, h - 2, edge == C_S0 ? C_INK : edge);
 }
 
-/* the window's frame: a bracket on each corner */
+/* the window's frame: the scene or the well sits inside its inner line */
 static void ui_window(void)
 {
-    fb_brackets(VX - 3, VY - 3, VW + 6, VH + 6, 9, C_O6);
+    fb_win(VX - 4, VY - 4, VW + 8, VH + 8);
+}
+/* text with its hard shadow, a pixel down and right */
+static int ui_text(int x, int y, const char *s, uint8_t c)
+{
+    fb_text(x + 1, y + 1, s, C_BG);
+    return fb_text(x, y, s, c);
+}
+static int ui_text_r(int xr, int y, const char *s, uint8_t c) { return ui_text(xr - fb_text_w(s), y, s, c); }
+/* a tab of gold with its name in ink: a window's or a page's name */
+static void ui_tab(int x, int y, const char *s)
+{
+    int w = fb_text_w(s) + 7;
+    fb_rect(x, y, w, 13, C_OUT);
+    fb_rect(x, y, w - 1, 12, C_O5);
+    fb_hline(x, y, w - 1, C_O7);
+    fb_text(x + 3, y - 1, s, C_OUT);
 }
 
 #include "gs_3d.c"
@@ -1104,30 +1108,26 @@ static void ui_window(void)
 static int ui_lv(uint32_t idx) { return gs.p[idx]; }
 
 static uint32_t ui_hash(uint32_t x);
-/* the backdrop of the window, the same in every world but for its colours: a glow in rings round the middle and a fan of thin lines
- * out of it. Under what stands up (the towers, the bars, the steps) there is a floor as well: a horizon, and lines that run toward
- * you at the tempo. */
+/* the backdrop of the window. The home page looks out on the world's scene. Every other page is a well of night; under what stands
+ * up in it (the towers, the bars, the steps) there is a floor: a horizon, lines that run to it, and lines that come toward you at
+ * the tempo. */
 static void vz_back(uint32_t now)
 {
-    int i, hy = VY + 32, cx = VX + VW / 2, cy = VY + VH / 2, fh = VY + VH - hy;
+    int i, hy = VY + 32, cx = VX + VW / 2, fh = VY + VH - hy;
     int flat = ui.page == PG_HOME || ui.page == PG_FLT || ui.page == PG_ENV || ui.page == PG_ENV2 || ui.page == PG_LFO || ui.page == PG_MOD ||
-               ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD;
+               ui.page == PG_PERF || ui.page == PG_SAVE || ui.page == PG_CHORD || ui.page == PG_FX || ui.page == PG_FX2 || UI_SEQP();
     uint32_t scroll = (now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 40u) & 2047u;
     fb_clip(VX, VY, VX + VW, VY + VH);
     fb_rect(VX, VY, VW, VH, C_BG);
-    if (!flat)
-        cy = hy;
-    for (i = 0; i < 4; i++)
-        fb_disc(cx, cy, 100 - i * 23, (uint8_t)(C_B0 + i));
-    for (i = -7; i <= 7; i++) {
-        fb_line(cx, cy, cx + i * 38, VY - 1, C_GRID0);
-        if (flat)
-            fb_line(cx, cy, cx + i * 38, VY + VH, C_GRID0);
-    }
-    if (!flat) {
-        fb_rect(VX, hy, VW, fh, C_BG);
-        fb_hline(VX, hy, VW, C_O2);
-        fb_hline(cx - 40, hy, 80, C_O4);
+    if (ui.page == PG_HOME)
+        fb_scene(ui_world(), SK_SCENE[(uint32_t)ui_world() % FB_NTHEME].wy, VX, VY, VW, VH);
+    else if (!flat) {
+        for (i = 0; i < 40; i++) {                                           /* a few stars over the horizon, some of them blinking in steps */
+            uint32_t h = ui_hash((uint32_t)i * 7919u + 11u);
+            if (((h >> 20) & 7u) != ((now >> 9) & 7u))
+                fb_pset(VX + (int)(h % (uint32_t)VW), VY + (int)((h >> 9) % 30u), (h >> 16) & 1u ? C_S4 : C_S2);
+        }
+        fb_hline(VX, hy, VW, C_S2);
         for (i = -8; i <= 8; i++)
             fb_line(cx, hy, cx + i * 34, VY + VH, C_GRID0);
         for (i = 0; i < 8; i++) {
@@ -1148,15 +1148,15 @@ static uint32_t ui_hash(uint32_t x)
     return x ^ (x >> 16);
 }
 
-/* a thick phosphor line: the core, and a dimmer pixel under it */
+/* a thick line in a well: gold, lit along its top, ink under it */
 static void vz_dot(int x, int y, uint8_t core, uint8_t glow)
 {
     (void)core;
     (void)glow;
-    fb_pset(x, y - 1, C_S6);                                                  /* a tube of chrome: lit from above, dark under */
-    fb_pset(x, y, C_HOT);
-    fb_pset(x, y + 1, C_S4);
-    fb_pset(x, y + 2, C_S1);
+    fb_pset(x, y - 1, C_O7);
+    fb_pset(x, y, C_O5);
+    fb_pset(x, y + 1, C_O3);
+    fb_pset(x, y + 2, C_OUT);
 }
 
 /* the oscillator as towers on the floor: a tower to a saw (or pulse, or sine) of the patch's oscillator, each rising at its
@@ -1209,21 +1209,108 @@ static void vz_towers(uint32_t now)
     }
 }
 
-/* the home page: the world's emblem, a glint on it that swells with the sound, and a glint either side for each voice that is sounding */
+/* a flame at (x, y), its foot there: k its size, h how tall it stands now */
+static void vz_flame(int x, int y, int k, int h)
+{
+    int r;
+    for (r = 0; r < h; r++) {
+        int hw = k * (h - r) / h;
+        fb_hline(x - hw, y - r, 2 * hw + 1, r * 3 < h ? C_G4 : C_O5);
+        if (hw > 1 && r * 2 < h)
+            fb_hline(x - hw / 2, y - r, 2 * (hw / 2) + 1, r * 4 < h ? C_O7 : C_HOT);
+    }
+}
+/* The home page looks out on the world's scene (vz_back drew it), and the scene answers the notes. Each world has its own way:
+ * the castle's windows light, the cathedral's candles leap, the dungeon's ghosts rise and fall, the shrine's gem and braziers flare,
+ * the forest's fireflies wake, the forge's lava spits. At rest each still moves a little, in steps. */
 static void vz_home(uint32_t now)
 {
-    static const int8_t GL[GS_NWORLD][2] = {{0, 0}, {0, -1}, {0, -2}, {7, -3}, {-12, -9}, {2, -12}}, VP[GS_NV][2] = {{-78, -14}, {78, 10}, {-56, 16}, {56, -18}, {-94, 8}, {94, -8}};
-    int w = (int)((uint32_t)ui_world() % GS_NWORLD), cx = VX + VW / 2, cy = VY + 40, i, lv = gs.level > 60 ? 5 : gs.level / 12;
-    fb_art(ART_WORLD_S[w], cx, cy);
-    fb_spark(cx + GL[w][0], cy + GL[w][1], 3 + lv, C_HOT);
-    for (i = 0; i < GS_NV; i++) {
-        int e = gs.v[i].on ? (int)(gs.v[i].ae >> 13) : 0;
-        if (e > 0)
-            fb_spark(cx + VP[i][0], cy + VP[i][1], 2 + (e > 5 ? 5 : e), i & 1 ? C_O6 : C_INK);
-        else
-            fb_pset(cx + VP[i][0], cy + VP[i][1], C_O3);
+    int w = (int)((uint32_t)ui_world() % FB_NTHEME), n = SCN_NSPOT[w], i, e[16], emax = 0;
+    for (i = 0; i < 16; i++)
+        e[i] = 0;
+    for (i = 0; i < GS_NV; i++) {                                           /* a sounding voice wakes the place its note falls on (and, where */
+        int lv = gs.v[i].on ? (int)(gs.v[i].ae >> 13) + 1 : 0, a = gs.v[i].note % n, c = (gs.v[i].note * 7 + 5) % n;   /* there are many, a second) */
+        if (lv > e[a])
+            e[a] = lv;                                                      /* 0: silent, else 1..8 */
+        if (n > 8 && lv > e[c])
+            e[c] = lv;
+        if (lv > emax)
+            emax = lv;
     }
-    (void)now;
+    for (i = 0; i < (int)gs.nh && i < 8; i++) {                             /* and so does every key that is held (a patch of one voice still lights a chord) */
+        int a = gs.hn[i] % n, c = (gs.hn[i] * 7 + 5) % n;
+        if (e[a] < 5)
+            e[a] = 5;
+        if (n > 8 && e[c] < 5)
+            e[c] = 5;
+        if (emax < 5)
+            emax = 5;
+    }
+    for (i = 0; i < n; i++) {
+        int x = VX + SCN_SPOT[w][i][0], y = VY + SCN_SPOT[w][i][1], k = SCN_SPOT[w][i][2], ev = e[i];
+        uint32_t h = ui_hash((uint32_t)i * 2654435761u + (uint32_t)w);
+        switch (w) {
+        case 0:                                                              /* a window of the towers for each voice */
+            if (ev) {
+                fb_rect(x - 1, y - 1, 4, 6, C_O5);
+                fb_rect(x, y, 2, 4, C_HOT);
+                if (ev > 4)
+                    fb_spark(x, y + 1, 3, C_O7);
+            } else if (((now >> 10) + h) % 9u == 0u)                         /* at rest: now and then one is dark */
+                fb_rect(x, y, 2, 4, C_O2);
+            break;
+        case 1:                                                              /* the candles: they flicker, and leap with a voice */
+            vz_flame(x, y, k + (ev > 3), k * 2 + 2 + (int)(((now >> 7) + h) & 1u) + ev * (k + 1) / 2);
+            break;
+        case 2: {                                                            /* the ghosts: they hang, and bob with the notes */
+            const uint8_t *g = SPR_GHOST[k];
+            int gw = g[0], gh = g[1], amp = 1, j, xx, yy, dy;
+            (void)j;
+            if (ev)
+                amp = 1 + ev;
+            dy = SK_SIN[((now * (uint32_t)(amp > 1 ? 3 : 1)) / 4u + h) & 1023u] * (amp > 1 ? 2 + amp : 2) / 32768;
+            for (yy = 0; yy < gh; yy++)
+                for (xx = 0; xx < gw; xx++) {
+                    uint8_t c = g[2 + yy * gw + xx];
+                    if (c)
+                        fb_pset(x - gw / 2 + xx, y - gh / 3 + yy + dy, c == 1 ? C_S5 : c == 2 ? C_HOT : amp > 1 ? C_R3 : C_OUT);
+                }
+            break;
+        }
+        case 3:                                                              /* the shrine: the gem, the braziers, motes that rise from the sword */
+            if (i == 0) {
+                if (emax)
+                    fb_spark(x, y, 2 + emax, C_R3);
+                fb_rect(x - 1, y - 1, 3, 3, emax ? C_HOT : ((now >> 9) & 1u) ? C_R4 : C_R3);
+            } else if (k == 4)
+                vz_flame(x, y, 3 + (emax > 4), 7 + (int)(((now >> 7) + h) & 1u) + emax);
+            else if (ev)
+                fb_pset(x + (int)((now >> 8) & 1u), y - (int)(((now >> 6) + h) % 14u), ((now >> 6) + h) % 14u > 9u ? C_R1 : C_R4);
+            break;
+        case 4: {                                                            /* the fireflies: a few glow at rest, a voice wakes its own */
+            uint32_t ph = ((now >> 8) + h) & 15u;
+            if (ev) {
+                int dx = (int)((now >> 7) + h) % 3 - 1;
+                fb_pset(x + dx - 1, y, C_WORLD); fb_pset(x + dx + 1, y, C_WORLD); fb_pset(x + dx, y - 1, C_WORLD); fb_pset(x + dx, y + 1, C_WORLD);
+                fb_pset(x + dx, y, C_HOT);
+            } else if (ph < 3u)
+                fb_pset(x, y, ph == 1u ? C_WORLD : C_G3);
+            break;
+        }
+        default:                                                             /* the forge: a voice throws lava up in an arc; at rest it bubbles */
+            if (ev) {
+                int j;
+                for (j = 0; j < 3; j++) {
+                    int t = (int)((now * 2u + h + (uint32_t)j * 170u) & 511u), hgt = 26 + ev * 5 - j * 6;
+                    int yy = y - hgt * t * (511 - t) / 65280, xx = x + (t - 256) * ((int)(h >> 8 & 15u) - 7) / 96 + j * 3 - 3;
+                    fb_rect(xx - 1, yy - 1, 3, 3, t < 300 ? C_O6 : C_G4);
+                    fb_pset(xx, yy, t < 200 ? C_HOT : C_O7);
+                }
+            } else if (((now >> 8) + h) % 7u == 0u)
+                fb_rect(x + (int)(h & 7u), y - 1, 2, 2, C_O6);
+            break;
+        }
+    }
 }
 
 /* the gate's strip along the bottom of the window: sixteen cells, the open ones lit, the step the playhead is on bright */
@@ -1337,19 +1424,35 @@ static void vz_matrix(uint32_t now)
     uint32_t r;
     for (r = 0; r < GS_NMOD; r++) {
         uint32_t b = P_M1S + 3u * r, src = gs.p[b] % GS_NMSRC, to = gs.p[b + 1u] % GS_NMDST;
-        int a = (int)gs.p[b + 2u] - 64, y = VY + 18 + (int)r * 25, sel = r == ui.mrow, live = src && a, w = (a < 0 ? -a : a) * 34 / 64, mx = VX + 111;
-        char nb[4];
-        ui_glass(VX + 3, y, VW - 6, 22, sel ? C_O5 : C_S0);
-        ui_num(nb, (int)r + 1);
-        fb_text(VX + 8, y + 5, nb, sel ? C_HOT : C_O6);
-        ui_fit_c(VX + 48, y + 5, GS_MSRC_NAME[src], live ? C_INK : C_DIM, 60);
-        fb_hline(mx - 34, y + 11, 69, C_K3);
-        fb_vline(mx, y + 7, 9, C_DIM);
-        if (live) {
-            fb_rect(a < 0 ? mx - w : mx, y + 10, w + 1, 3, C_O5);
-            fb_spark(a < 0 ? mx - w : mx + w, y + 11, 2 + (int)((now >> 8) & 1u), C_HOT);
+        int a = (int)gs.p[b + 2u] - 64, y = VY + 17 + (int)r * 24, sel = r == ui.mrow, live = src && a, x0 = VX + 76, x1 = VX + 144, k, tw;
+        char nb[6], *q = nb;
+        fb_rect(VX + 3, y, VW - 6, 22, sel ? C_SEL : C_ROW);
+        fb_frame(VX + 3, y, VW - 6, 22, sel ? C_R3 : C_S2);
+        if (sel)
+            fb_sword(VX + 6, y + 7);
+        else {
+            ui_num(nb, (int)r + 1);
+            fb_text(VX + 9, y + 4, nb, C_INK2);
         }
-        ui_fit_c(VX + 182, y + 5, GS_MDST_NAME[to], live ? C_INK : C_DIM, 60);
+        ui_fit_c(VX + 48, y + 4, GS_MSRC_NAME[src], src ? C_HOT : C_DIM2, 52);
+        fb_rect(x0, y + 9, x1 - x0, 5, C_OUT);                                /* the string: a vein from the source to what it moves */
+        fb_rect(x0, y + 10, x1 - x0, 3, live ? C_R1 : C_VEIN);
+        if (live)                                                            /* alive: its blood runs toward what it moves (back, when the amount is negative) */
+            for (k = 0; k < x1 - x0; k++) {
+                int ph = (k + (a < 0 ? (int)(now >> 6) : -(int)(now >> 6))) & 15;
+                if (ph < 6)
+                    fb_pset(x0 + k, y + 11, C_R4);
+            }
+        if (src) {                                                           /* the amount, on a tag in the middle of it */
+            if (a > 0)
+                *q++ = '+';
+            ui_num(q, a);
+            tw = fb_text_w(nb) + 8;
+            fb_rect((x0 + x1) / 2 - tw / 2, y + 4, tw, 14, C_OUT);
+            fb_frame((x0 + x1) / 2 - tw / 2, y + 4, tw, 14, sel ? C_R3 : C_INK);
+            fb_text_c((x0 + x1) / 2, y + 4, nb, a ? C_HOT : C_DIM);
+        }
+        ui_fit_c(VX + 182, y + 4, GS_MDST_NAME[to], src ? C_HOT : C_DIM2, 60);
     }
 }
 
@@ -1378,96 +1481,53 @@ static void vz_lfo(uint32_t now)
     fb_hline(VX, cy, VW, C_GRID1);
 }
 
-/* FX: four small scenes, one above each plate; each is a shape that turns, and what it does shows its setting */
+/* The effects, as what they do to a note. Page 1: the note (gold) and its echoes (pink), as many and as tall as the echo and its
+ * feedback make them and as far apart as its time; the chorus stands a paler copy beside each; the reverb is a tail of dots that
+ * falls away behind them. Page 2: a wave, cut into steps by the crush, shaken sideways by the tape, the room a box round it. */
 static void vz_fx(uint32_t now)
 {
-    int i, k;
-    for (i = 0; i < 4; i++) {
-        int x0 = 6 + i * 58, y0 = VY + 6, w = 54, h = VH - 12;
-        fb_rect(x0, y0, w, h, C_K1);
-        fb_rect(x0 + 1, y0 + h - 22, w - 2, 21, C_B1);
-        fb_frame(x0, y0, w, h, C_S1);
-        fb_clip(x0 + 1, y0 + 1, x0 + w - 1, y0 + h - 1);
-        g3_cam(x0 + w / 2, y0 + h / 2 + 8, 170, 170, 150);
-        if (ui.page == PG_FX) {
-            switch (i) {
-            case 0: {                                                          /* the ensemble: three that orbit, wider with the mix */
-                int rad = 6 + ui_lv(P_CHOR) * 18 / 127, ox[3], oz[3], o[3] = {0, 1, 2}, t;
-                for (k = 0; k < 3; k++) {
-                    int a = (int)(now >> 3) + k * 341;
-                    ox[k] = g3_cos(a) * rad / 32768;
-                    oz[k] = g3_sin(a) * rad / 32768;
-                }
-                if (oz[o[0]] < oz[o[1]]) { t = o[0]; o[0] = o[1]; o[1] = t; }
-                if (oz[o[1]] < oz[o[2]]) { t = o[1]; o[1] = o[2]; o[2] = t; }
-                if (oz[o[0]] < oz[o[1]]) { t = o[0]; o[0] = o[1]; o[1] = t; }
-                for (k = 0; k < 3; k++)
-                    g3_draw(&G3_OCT, ox[o[k]], 0, oz[o[k]], 5, 6, 5, 0, (int)(now >> 3) + o[k] * 200, 0, G3_CHR, 8, 0, C_O6);
-                break;
-            }
-            case 1: {                                                          /* the echo: copies falling away down the floor */
-                static const uint8_t SP[6] = {8, 14, 20, 26, 11, 17};
-                int n = 2 + ui_lv(P_DFB) * 4 / 127, s0 = 3 + ui_lv(P_DLY) * 4 / 127, act = (int)((now / (uint32_t)(SP[gs.p[P_DTIM] % 6u] * 22u)) % (uint32_t)n);
-                for (k = n - 1; k >= 0; k--) {
-                    int s = s0 * (n + 1 - k) / (n + 1);
-                    g3_draw(&G3_CUBE, 0, s * 2, -30 + k * 60 / n, s, s, s, 0, (int)(now >> 4) + k * 60, 0, G3_CHR, 8, k == act ? 3 : -1, k == act ? C_HOT : C_O5);
-                }
-                break;
-            }
-            case 2: {                                                          /* the feedback: a stack that shrinks by how much comes back */
-                int fbk = ui_lv(P_DFB), r = 115 + fbk * 115 / 127, s = 7 * 16, oy = -26;
-                for (k = 0; k < 5; k++) {
-                    int sc = s / 16 < 1 ? 1 : s / 16;
-                    g3_draw(&G3_CUBE, 0, oy + sc * 2, 0, sc, sc, sc, 0, (int)(now >> 4) * (k + 1) + k * 90, 0, G3_CHR, 8, 0, C_O6);
-                    oy += sc * 4;
-                    s = s * r / 256;
-                }
-                break;
-            }
-            default: {                                                         /* the reverb: shells that grow and thin away */
-                int n = 2 + ui_lv(P_REV) * 3 / 127, unit = 3 + ui_lv(P_RSZ) * 5 / 127;
-                for (k = 0; k < n; k++) {
-                    int g = (int)((((uint32_t)k * 256u + (now >> 2)) % ((uint32_t)n * 256u)) * 256u / ((uint32_t)n * 256u));   /* 0..255 */
-                    int s = 1 + g * unit / 120;
-                    g3_draw(&G3_CUBE, 0, 0, 0, s, s, s, (int)(now >> 5), -(int)(now >> 4), 0, 255, 0, 0, (uint8_t)(C_O7 - g * 5 / 256));
-                }
-                break;
-            }
-            }
-        } else {
-            switch (i) {
-            case 0: {                                                          /* the room: a box as long as the size, a ball between its ends */
-                int sz = 4 + ui_lv(P_RSZ) * 10 / 127, lim = sz * 2 - 5, bz = g3_sin((int)(now >> 2)) * lim / 32768;
-                g3_draw(&G3_CUBE, 0, 0, 0, 8, 5, sz, 0, 0, 0, 255, 0, 0, C_S5);
-                g3_draw(&G3_OCT, 0, 0, bz, 2, 2, 2, (int)(now >> 3), (int)(now >> 3), 0, G3_CHR, 8, 2, C_HOT);
-                break;
-            }
-            case 1: {                                                          /* the crusher: it turns in steps, in fewer shades */
-                int cr = ui_lv(P_CRU), steps = 3 + (127 - cr) * 20 / 127, a = (int)(now >> 3) & 1023, rl = 2 + (127 - cr) * 6 / 127;
-                a = a * steps / 1024 * 1024 / steps;
-                g3_draw(&G3_CUBE, 0, 0, 0, 8, 8, 8, a / 2, a, 0, C_O0, rl, 0, C_O6);
-                break;
-            }
-            case 2: {                                                          /* the drive: a spike that grows, hotter, and shakes */
-                int drv = ui_lv(P_DRV), hot = drv > 80;
-                int jx = (int)(ui_hash(now >> 5) % (uint32_t)(drv / 40 + 1));
-                g3_draw(&G3_PYR, jx, 6 + drv * 14 / 127, 0, 8, 6 + drv * 14 / 127, 8, 0, (int)(now >> 3), 0,
-                        hot ? C_R0 : G3_CHR, hot ? 5 : 8, 1, hot ? C_HOT : C_O6);
-                break;
-            }
-            default: {                                                         /* the glide: a slide from one note to the next, ghosts behind it */
-                uint32_t dur = 120u + (uint32_t)ui_lv(P_GLIDE) * 9u, ph = now % (dur + 600u);
-                int f = ph < dur ? (int)(ph * 1000u / dur) : 1000;
-                for (k = 3; k >= 0; k--) {
-                    int g = f - k * 90;
-                    g = g < 0 ? 0 : g;
-                    g3_draw(&G3_OCT, -18 + 36 * g / 1000, 0, -22 + 44 * g / 1000, 5, 5, 5, 0, (int)(now >> 3), 0, G3_CHR, 8, k ? -2 : 2, k ? C_O3 : C_HOT);
-                }
-                break;
-            }
-            }
+    int i, k, base = VY + VH - 8;
+    fb_well(VX + 2, VY + 15, VW - 4, VH - 17);
+    if (ui.page == PG_FX) {
+        static const uint8_t SPC[6] = {16, 24, 30, 36, 20, 28};
+        int dly = ui_lv(P_DLY), fb_ = ui_lv(P_DFB), cho = ui_lv(P_CHOR), rev = ui_lv(P_REV), rsz = ui_lv(P_RSZ);
+        int sp = SPC[gs.p[P_DTIM] % 6u], h = 56, beat = (int)((now * (uint32_t)(gs.bpm ? gs.bpm : 120) / 15000u) % 8u);
+        ui_text_r(VX + VW - 12, VY + 1, GS_DT_NAME[gs.p[P_DTIM] % 6u], C_INK2);
+        for (k = 0; k < rev * (60 + rsz) / 127; k += 3) {                    /* the hall's tail */
+            int x = VX + 22 + k, y = base - 2 - (30 * rev / 127) * (200 - k) / 200;
+            if (x < VX + VW - 6)
+                fb_pset(x, y < base - 2 ? y : base - 2, C_S4);
         }
-        fb_clip(VX, VY, VX + VW, VY + VH);
+        for (i = 0; i < 8; i++) {
+            int x = VX + 8 + i * sp, hh = i ? h * dly / 127 : h, y;
+            for (k = 1; k < i; k++)
+                hh = hh * (30 + fb_ * 90 / 127) / 127;
+            if (x > VX + VW - 18 || hh < 3)
+                break;
+            if (cho > 8)                                                     /* the chorus: a paler copy, a little aside */
+                for (y = base - hh + 2; y < base; y += 4)
+                    fb_rect(x + 3 + cho / 26, y, 9, 2, i ? C_R0 : C_O2);
+            for (y = base - hh; y < base; y += 4)
+                fb_rect(x, y, 9, 3, i ? (i == beat ? C_R4 : i > 3 ? C_R1 : C_R3) : C_O5);
+            if (!i)
+                fb_hline(x, base - hh, 9, C_O7);
+        }
+        fb_hline(VX + 6, base, VW - 12, C_S2);
+    } else {
+        int cr = ui_lv(P_CRU), tp = ui_lv(P_TAPE), rsz = ui_lv(P_RSZ), cy = VY + 53, st = 1 + cr * 9 / 127, q = 1 + cr * 12 / 127, py = 0;
+        int rw = 40 + rsz * 60 / 127;
+        fb_frame(VX + VW / 2 - rw, cy - 12 - rsz * 22 / 127, 2 * rw, 24 + rsz * 44 / 127, C_K3);            /* the room */
+        for (k = 0; k < VW - 16; k++) {
+            int wob = tp ? SK_SIN[((now >> 1) + (uint32_t)k * 9u) & 1023u] * (tp / 12) / 32768 : 0;
+            int x = VX + 8 + k, y = cy - SK_SIN[((uint32_t)(k + wob) * 10u + (now >> 2)) & 1023u] * 26 / 32768;
+            fb_pset(x, y, C_S2);                                             /* the wave as it was */
+            if (k % st == 0)
+                py = cy + ((y - cy) / q) * q;                                /* and as the crush leaves it: held, and rounded to a step */
+            fb_rect(x, py - 1, 1, 3, C_O5);
+            fb_pset(x, py - 1, C_O7);
+            if (k % st == 0 && st > 2)
+                fb_vline(x, py < cy ? py : cy, py < cy ? cy - py : py - cy, C_O3);
+        }
     }
 }
 
@@ -1594,20 +1654,33 @@ static void vz_seq(uint32_t now)
     }
     if (nb < vb + 1)
         nb = vb + 1;
-    g3_cam(VX + VW / 2, VY + 58, 260, 260, 60);
-    for (i = 0; i < 16; i++) {
-        int s = b0 + i, out = s >= len, f = gs.sp[pc][s], on = SP_ON(f), h = on ? 6 + SP_NOTE(f) * 34 / 36 : 3, x = i * 13 - 97;
+    for (i = 0; i < 16; i++) {                                              /* the notes: a gem a step, higher for a higher note, a colour a beat */
+        int s = b0 + i, out = s >= len, f = gs.sp[pc][s], on = SP_ON(f), x = VX + 6 + i * 13, y = VY + 53 - SP_NOTE(f) * 21 / 36;
         int playing = run && !gs.scount && s == pos, fresh = gs.rec_n && s == gs.rec_step && now - ui.rec_t < 350u;
-        if (!out && on && SP_SLD(f) && i < 15 && s + 1 < len)                  /* the slide's bridge */
-            g3_draw(&G3_CUBE, x + 7, h / 2, 0, 3, 1, 1, 0, 0, 0, G3_CHR, 8, 2, C_O4);
+        fb_vline(x - 1, VY + 31, 29, (i & 3) ? C_GRID0 : C_K3);
+        if (playing) {                                                      /* the playhead: a line down the column, a pink diamond on top */
+            fb_vline(x + 5, VY + 31, 29, C_INK);
+            fb_diamond(x + 5, VY + 32, 2, C_R3);
+        }
+        if (!on) {
+            if (!out)
+                fb_hline(x + 3, VY + 58, 5, C_K3);
+            continue;
+        }
+        if (!out && SP_SLD(f) && i < 15 && s + 1 < len)                      /* a slide: a bridge to the next */
+            fb_hline(x + 9, y + 3, 6, C_O4);
         if (out)
-            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_S0, 4, 0, C_S1);
+            fb_gem(x, y, 11, 7, C_K3, C_K3, C_K2);
         else if (fresh)
-            g3_draw(&G3_CUBE, x, h / 2, 0, 4, h / 4 + 2, 5, 0, 0, 0, C_R0, 5, 5, C_HOT);
-        else if (on && SP_ACC(f))
-            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, C_R0, 5, playing ? 4 : 1, C_HOT);
+            fb_gem(x, y, 11, 7, C_HOT, C_HOT, C_R4);
+        else if (SP_ACC(f))
+            fb_gem(x, y - 1, 11, 8, C_R3, C_R4, C_R1);
         else
-            g3_draw(&G3_CUBE, x, h / 2, 0, 3, h / 4 + 1, 4, 0, 0, 0, G3_CHR, 8, playing ? 5 : (on ? 1 : -1), playing ? C_HOT : (on ? C_O6 : C_O2));
+            fb_gem(x, y, 11, 7, (uint8_t)(C_G0 + (i >> 2)), (uint8_t)(C_G0 + (i >> 2)), (uint8_t)(C_GD0 + (i >> 2)));
+        if (playing) {
+            fb_frame(x - 1, y - 1, 13, 9, C_R3);
+            fb_frame(x, y, 11, 7, C_HOT);
+        }
     }
     /* the pattern tabs: A to H */
     for (i = 0; i < GS_NP; i++) {
@@ -1708,7 +1781,7 @@ static void vz_seq(uint32_t now)
             int hw = fb_text_w(b) / 2 + 4;
             if (hw < 18) hw = 18;
             if (x < VX + 6 + hw) x = VX + 6 + hw;
-            if (x > VX + VW - 4 - hw) x = VX + VW - 4 - hw;
+            if (x > VX + VW - 74 - hw) x = VX + VW - 74 - hw;               /* (clear of the key's tag at the right) */
             fb_rect(x - hw, VY + 17, 2 * hw, 13, C_K1);
             fb_frame(x - hw, VY + 17, 2 * hw, 13, C_HOT);
         }
@@ -1984,8 +2057,6 @@ static void vz_perf(uint32_t now)
 /* ---------------------------------------------------------------------- the frame --- */
 static const char *const UI_SAVE_ACT[3] = {"LOAD", "SAVE", "CLEAR"};
 
-static int ui_ov_v, ui_ov_m;                                   /* the bar of the next plate, when it is not a parameter (ui_ov_m 0: none) */
-/* a value's text, centred, closed up by a pixel a letter if it is wider than its card */
 static void ui_fit_c(int cx, int y, const char *s, uint8_t c, int maxw)
 {
     int w = fb_text_w(s), n = 0, x;
@@ -2005,37 +2076,59 @@ static void ui_fit_c(int cx, int y, const char *s, uint8_t c, int maxw)
     }
 }
 
-/* a knob's card: its name in the small face, the value big (a number) or in words (a choice), and a meter along the bottom */
+/* which of the four knobs was turned last (-1: none yet): its row carries the sword */
+static int ui_ksel(void)
+{
+    int i, b = -1;
+    for (i = 0; i < 4; i++)
+        if (ui.k_t[i] && (b < 0 || (int32_t)(ui.k_t[i] - ui.k_t[b]) > 0))
+            b = i;
+    return b;
+}
+/* A knob's row, K1 at the top to K4 at the foot: its number (or the sword, on the one turned last), its name, a meter of twelve
+ * cells when it is an amount (mx > 0: v of mx), and what it is set to at the right. fl: 1 the value in gold (a choice), 2 the value
+ * lit (something is on), 4 the value dim. */
+static void ui_row(int i, const char *label, const char *val, int v, int mx, uint32_t now, int fl)
+{
+    int x = 6, y = 157 + i * 19, w = 228, h = 18, k, lit;
+    int sel = i == ui_ksel(), hot = ui.k_t[i] && now - ui.k_t[i] < 700u;
+    char d[2];
+    fb_rect(x, y, w, h, sel ? C_SEL : C_ROW);
+    fb_frame(x, y, w, h, sel ? C_R3 : C_S2);
+    if (sel)
+        fb_sword(x + 3, y + 5);
+    else {
+        d[0] = (char)('1' + i);
+        d[1] = 0;
+        fb_micro(x + 8, y + 7, d, C_DIM2, 0);
+    }
+    ui_text(x + 21, y + 2, label, sel ? C_HOT : C_INK2);
+    if (mx > 0) {
+        lit = (v * 12 + mx / 2) / mx;
+        if (v > 0 && !lit)
+            lit = 1;
+        fb_well(104, y + 3, 88, 12);
+        for (k = 0; k < 12; k++) {
+            int cx = 107 + k * 7, pk = hot && k < lit && k >= lit - 2;
+            fb_rect(cx, y + 5, 5, 8, k < lit ? (pk ? C_R3 : C_O5) : C_K3);
+            if (k < lit)
+                fb_hline(cx, y + 5, 5, pk ? C_R4 : C_O7);
+        }
+        ui_text_r(x + w - 4, y + 2, val, fl & 4 ? C_DIM : fl & 2 ? C_O6 : C_HOT);
+    } else
+        ui_text_r(x + w - 4, y + 2, val, fl & 4 ? C_DIM : hot ? C_HOT : fl & 2 ? C_R4 : C_O5);
+}
+/* the row of a parameter */
 static void ui_plate(int i, const char *label, uint32_t idx, uint32_t now, int accent)
 {
-    int x = 6 + i * 58, y = 156, w = 54, h = 76;
-    int hot = ui.k_t[i] && now - ui.k_t[i] < 700u;
     char buf[16];
-    const char *val;
-    int v = idx == 255u ? 0 : gs.p[idx], mx = idx == 255u ? 1 : ui_maxv(idx), k, lit, mw = w - 12;
-    if (ui_ov_m) {                                                                  /* a card that is not a parameter: its meter is given */
-        v = ui_ov_v;
-        mx = ui_ov_m;
-    }
-    ui_glass(x, y, w, h, hot ? C_O5 : C_S0);
-    if (!hot)                                                                       /* (at rest the chrome rim is two pixels thick) */
-        for (k = 4; k < h - 4; k++) {
-            fb_pset(x + 1, y + k, FB_CHR[1 + k * 13 / (h - 1)]);
-            fb_pset(x + w - 2, y + k, FB_CHR[1 + k * 13 / (h - 1)]);
-        }
-    fb_micro_c(x + w / 2, y + 7, label, hot ? C_HOT : C_O6, 1);
-    val = idx == 255u ? "" : ui_val(idx, buf);
-    if (idx != 255u && !ui_is_enum(idx) && !(idx == P_GLIDE && !v))
-        fb_text2_c(x + w / 2, y + 27, val, hot ? C_HOT : C_INK, 0);
-    else if (idx != 255u)
-        ui_fit_c(x + w / 2, y + 31, val, hot ? C_HOT : C_INK, w - 4);
-    lit = mx ? (v * mw + mx / 2) / mx : 0;                                          /* the meter: a track, a fill that brightens toward its head */
-    fb_rect(x + 6, y + 63, mw, 3, C_K3);
-    fb_rect(x + 6, y + 63, lit, 3, C_O5);
-    if (lit > 0)
-        fb_vline(x + 5 + lit, y + 62, 5, C_INK);
-    (void)k;
     (void)accent;
+    if (idx == 255u)
+        ui_row(i, label, "", 0, 0, now, 0);
+    else if (ui_is_enum(idx) || (idx == P_GLIDE && !gs.p[idx]))
+        ui_row(i, label, ui_val(idx, buf), 0, 0, now, 1);
+    else
+        ui_row(i, label, ui_val(idx, buf), gs.p[idx], ui_maxv(idx), now, 0);
 }
 
 /* the battery, top right: a glass orb filled to the charge, green when full, then lime, yellow, amber and orange as it drains, and
@@ -2074,37 +2167,33 @@ static void ui_battery(int cx, int cy, uint32_t now)
     fb_pset(cx - 4, cy - 3, C_S6);
 }
 
-/* the top bar: the world at the left, the name in the middle, the tempo and the battery at the right, and a streak of light under it */
+/* the top bar, a window's strip: the world's mark and name at the left, the tempo in gold and the battery at the right */
 static void ui_header(uint32_t now)
 {
     char b[12];
-    int w = ui_world(), k;
-    fb_rect(0, 0, 240, 21, C_BG);
-    fb_spark(9, 10, 5, C_S5);                                                        /* the world's mark: a glint of chrome */
-    fb_spark(9, 10, 2, C_HOT);
-    fb_micro(17, 8, UI_WORLD[w], C_O6, 1);
-    fb_text_chrome(120 - fb_text_w("GARTSTRINGER") / 2, 3, "GARTSTRINGER", 13);
-    (void)k;
+    int w = ui_world();
+    fb_win2(0, 0, 240, 22, 0);
+    fb_diamond(11, 10, 4, C_WORLD);
+    ui_text(21, 3, UI_WORLD[w], C_INK2);
     if (gs.mac || gs.djf != 64u)                                                     /* the performance page is doing something */
-        fb_micro(165, 9, "FX", ((now >> 8) & 1u) ? C_HOT : C_R3, 0);
+        fb_micro(152, 9, "FX", ((now >> 8) & 1u) ? C_HOT : C_R3, 0);
     ui_num(b, gs.bpm);
-    fb_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_INK);
-    fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_S4, 0);        /* (EXT: the tempo is an outside clock's) */
+    ui_text_r(199, 3, b, ui.hud_t && now - ui.hud_t < 600u ? C_HOT : C_O5);
+    fb_micro(202, 9, gs_ext.on ? "EXT" : "BPM", gs_ext.on ? C_HOT : C_O5, 0);        /* (EXT: the tempo is an outside clock's) */
     ui_battery(228, 10, now);
-    fb_hline(0, 21, 240, C_O2);                                                      /* the line under it */
 }
 
-/* under the window: the patch (its number in its bank, its name), the octave; then four lamps over the four cards */
+/* under the window: the patch (its number in its world on a gold tile, its name in the lettering), the octave; then four lamps */
 static void ui_status(uint32_t now)
 {
     char b[28], *p;
-    int i, w = ui_world(), num = (int)GS_POS[gs.preset] + 1 - (int)GS_W0[w];
+    int i, w = ui_world(), num = (int)GS_POS[gs.preset] + 1 - (int)GS_W0[w], pop = ui.pop_t && now - ui.pop_t < 400u;
     b[0] = (char)('0' + num / 10);
     b[1] = (char)('0' + num % 10);
     b[2] = 0;
-    ui_glass(6, 121, 24, 15, ui.pop_t && now - ui.pop_t < 400u ? C_HOT : C_O4);
-    fb_text_c(18, 122, b, C_O6);
-    fb_text(36, 122, GS_PRE[gs.preset].name, C_INK);
+    fb_gem(6, 121, 24, 15, pop ? C_HOT : C_O5, C_O7, pop ? C_O7 : C_O4);
+    fb_text_c(18, 122, b, C_OUT);
+    fb_bl(36, 122, GS_PRE[gs.preset].name, 1, C_INK, 0);
     p = ui_str(b, "OCT ");
     if (gs.oct > 0)
         *p++ = '+';
@@ -2122,15 +2211,13 @@ static void ui_status(uint32_t now)
         on[3] = gl.on;
         for (i = 0; i < 4; i++) {
             int x = 6 + i * 58;
-            uint8_t c = on[i] ? (i == 3 ? C_R3 : C_O5) : C_K3;             /* on: a pill of the signal colour, its name dark in it */
-            fb_rect(x + 5, 140, 44, 11, c);
-            fb_rect(x + 4, 141, 46, 9, c);
-            fb_rect(x + 3, 142, 48, 7, c);
-            if (!on[i]) {                                                  /* off: its outline */
-                fb_rect(x + 5, 141, 44, 9, C_BG);
-                fb_rect(x + 4, 142, 46, 7, C_BG);
+            if (on[i])                                                     /* on: gold (the glitch: pink, it is alive) */
+                fb_gem(x + 3, 140, 48, 11, i == 3 ? C_R3 : C_O5, i == 3 ? C_R4 : C_O7, i == 3 ? C_R2 : C_O4);
+            else {
+                fb_rect(x + 3, 140, 48, 11, C_ROW);
+                fb_frame(x + 3, 140, 48, 11, C_S2);
             }
-            fb_micro_c(x + 28, 143, i == 0 && gs.srun ? "SEQ" : LN[i], on[i] ? C_BG : C_DIM, 1);
+            fb_micro_c(x + 28, 143, i == 0 && gs.srun ? "SEQ" : LN[i], on[i] ? (i == 3 ? C_HOT : C_OUT) : C_DIM, 1);
         }
     }
 }
@@ -2152,55 +2239,64 @@ static void ui_cpu(void)
     fb_micro_r(VX + VW - 4, VY + VH - 8, b, C_R4, 0);
 }
 
-/* A world's title: its emblem in chrome inside a ring of ticks, the name on a bar of chrome, the world's own name under it. It is the
- * screen at power-on (a: the milliseconds since, the ring opening and the emblem and the name arriving in turn) and it shows for a
- * moment when ALGORITHM steps to another world. */
+#ifndef SK_VERSION
+#define SK_VERSION "GARTSTRINGER"
+#endif
+/* The title, at power-on: the castle at dusk, the name in gold lettering over its hill, whose synth it is, the version. a: the
+ * milliseconds since it began (the name, then the line under it, arrive in turn). */
+static void ui_title(int a, uint32_t now)
+{
+    static const char VER[] = SK_VERSION;
+    const char *v = VER, *q;
+    if (ui.theme_on != 0u) {
+        fb_theme_snap(0);
+        ui.theme_on = 0;
+    }
+    fb_scene(0, 0, 0, 0, 240, 240);
+    if (a > 300)
+        fb_bl(120 - fb_bl_w("Gartstringer", 2) / 2, 146, "Gartstringer", 2, 0, 1);
+    if (a > 900) {
+        fb_text_c(121, 181, "SIR OBBY'S SYNTH", C_BG);
+        fb_text_c(120, 180, "SIR OBBY'S SYNTH", C_INK);
+    }
+    if (a > 1300) {
+        fb_sword(120 - 7 + (int)((now >> 8) & 1u) * 3 - 44, 207);
+        fb_heart(120 + 36, 207);
+    }
+    for (q = v; *q; q++)                                                     /* the version: what follows the last space of the build's name */
+        if (*q == ' ')
+            v = q + 1;
+    if (v != VER && *v >= '0' && *v <= '9') {
+        fb_text_r(236, 225, v, C_BG);
+        fb_text_r(235, 224, v, C_O5);
+    }
+    sk_present();
+}
+/* A world's card, for a moment when ALGORITHM (or a patch) enters another world: its scene, and under it a window with its name
+ * in the gold lettering and which of the six it is. */
 static void ui_splash(int w, int a, uint32_t now)
 {
-    static const int8_t GL[GS_NWORLD][2] = {{0, 0}, {0, -2}, {0, -4}, {18, -8}, {-30, -22}, {4, -30}};        /* where each emblem's glint sits */
-    char b[12], *p;
-    int cx = 120, cy = 90, i, rr = a < 500 ? 16 + a * 54 / 500 : 70, tw = (int)((now >> 7) & 7u);
+    static const char *const NM[GS_NWORLD] = {"Trance", "House", "Techno", "Garage", "Ambient", "Bass"};
+    char b[16], *p;
+    (void)a;
     w = (int)((uint32_t)w % GS_NWORLD);
-    if (ui.theme_on != 3u * (uint32_t)w) {                                    /* its colours at once, not faded in */
-        fb_theme_snap(3u * (uint32_t)w);
-        ui.theme_on = (uint8_t)(3u * (uint32_t)w);
+    if (ui.theme_on != (uint32_t)w) {                                         /* its colours at once, not faded in */
+        fb_theme_snap((uint32_t)w);
+        ui.theme_on = (uint8_t)w;
     }
-    fb_fill(C_BG);
-    for (i = 0; i < 4; i++)
-        fb_disc(cx, cy, 108 - i * 25, (uint8_t)(C_B0 + i));
-    for (i = -6; i <= 6; i++) {
-        fb_line(cx, cy, cx + i * 40, 239, C_GRID0);
-        fb_line(cx, cy, cx + i * 40, 0, C_GRID0);
-    }
-    fb_ring(cx, cy, rr * 4 / 7, C_O2);
-    fb_ring(cx, cy, rr, C_O5);
-    for (i = 0; i < 48; i++) {                                               /* the ticks round the ring, turning slowly; none at its sides */
-        int ang = i * 1024 / 48 + (int)(now >> 6), k = i % 12, c = g3_cos(ang), sn = g3_sin(ang);
-        if (k == 11 || k == 0 || k == 1)
-            continue;
-        fb_line(cx + c * rr / 32768, cy + sn * rr / 32768, cx + c * (rr + 3) / 32768, cy + sn * (rr + 3) / 32768, C_O5);
-    }
-    fb_brackets(6, 6, 228, 228, 10, C_O6);
-    fb_micro(13, 13, "GS/FM-1", C_O6, 1);
+    fb_fill(C_OUT);
+    fb_scene(w, 0, 0, 8, 240, 160);
+    fb_hline(0, 7, 240, C_INK);
+    fb_hline(0, 168, 240, C_INK);
+    fb_win(4, 176, 232, 58);
+    fb_bl(120 - fb_bl_w(NM[w], 2) / 2, 184, NM[w], 2, 0, 1);
     p = ui_str(b, "WORLD ");
     p = ui_num(p, w + 1);
-    ui_str(p, "/6");
-    fb_micro_r(227, 13, b, C_O6, 1);
-    if (a > 250) {
-        fb_art(ART_WORLD[w], cx, cy);
-        fb_spark(cx + GL[w][0], cy + GL[w][1], 6 + (tw < 4 ? tw : 7 - tw), C_HOT);
-    }
-    if (a > 600) {
-        fb_art(ART_PLATE, 120, 176);
-        fb_spark(214, 164, tw & 4 ? 3 : 2, C_HOT);
-    }
-    if (a > 900) {
-        fb_text2_chrome(120, 195, UI_WORLD[w], 4, 22);
-        fb_hline(16, 207, 30, C_O5);
-        fb_hline(194, 207, 30, C_O5);
-    }
-    fb_spark(34, 150, tw & 2 ? 3 : 2, C_O6);
-    fb_spark(206, 40, tw & 1 ? 4 : 3, C_O6);
+    ui_str(p, " OF 6");
+    fb_micro_c(120, 222, b, C_INK2, 1);
+    fb_diamond(20, 224, 3, C_WORLD);
+    fb_diamond(220, 224, 3, C_WORLD);
+    fb_sword(26 + (int)((now >> 8) & 1u) * 3, 196);
     sk_present();
 }
 
@@ -2218,7 +2314,7 @@ static void ui_draw(uint32_t now)
         if (now - ui.intro_t > 2600u)
             ui.intro = 0, gs_intro_n = 0;
         else {
-            ui_splash(ui_world(), (int)(now - ui.intro_t), now);
+            ui_title((int)(now - ui.intro_t), now);
             return;
         }
     }
@@ -2230,7 +2326,7 @@ static void ui_draw(uint32_t now)
             return;
         }
     }
-    ui_theme((uint32_t)pg->theme + 3u * (uint32_t)ui_world());
+    ui_theme((uint32_t)ui_world());
     fb_fill(C_BG);
     ui_header(now);
     ui_window();
@@ -2239,7 +2335,8 @@ static void ui_draw(uint32_t now)
     switch (ui.page) {
     case PG_HOME:
         vz_home(now);
-        vz_gate_strip(VY + VH - 14, 8);
+        if (gs.p[P_GDEP])
+            vz_gate_strip(VY + VH - 9, 5);
         break;
     case PG_OSC:
     case PG_OSC2:
@@ -2292,200 +2389,124 @@ static void ui_draw(uint32_t now)
     }
     fb_unclip();
     /* the page's name in the window's corner, the level at its right */
-    if (ui.page != PG_FX && ui.page != PG_FX2 && ui.page != PG_SAVE && ui.page != PG_CHORD && !UI_SEQP())
+    if (ui.page != PG_SAVE && ui.page != PG_CHORD && !UI_SEQP())
     {
-        fb_rect(VX + 2, VY + 1, fb_text_w(pg->name) + 5, 12, C_BG);          /* (whatever the scene has there stays behind the name) */
-        fb_text(VX + 4, VY + 3, pg->name, C_O6);
+        ui_tab(VX, VY, pg->name);
     }
     if (ui.page == PG_HOME || ui.page == PG_OSC) {
-        fb_rect(VX + VW - 12 - fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]) - 3, VY + 1, fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]) + 6, 11, C_K1);
-        fb_text_r(VX + VW - 12, VY + 3, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
+        int mw = fb_text_w(GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE]);
+        fb_rect(VX + VW - 12 - mw - 4, VY, mw + 8, 13, C_OUT);
+        fb_text_r(VX + VW - 12, VY, GS_MODE_NAME[gs.p[P_MODE] % GS_NMODE], C_INK);
     } else if (ui.page == PG_FLT)
-        fb_text_r(VX + VW - 4, VY + 3, GS_FT_NAME[gs.p[P_FTYPE] % GS_NFT], C_INK);
+        ui_text_r(VX + VW - 4, VY + 1, GS_FT_NAME[gs.p[P_FTYPE] % GS_NFT], C_INK2);
     {
         int lv = gs.level * (VH - 8) / 255;
-        fb_rect(VX + VW - 6, VY + VH - 4 - lv, 3, lv, lv > 72 ? C_R3 : C_O5);
+        int q;
+        for (q = 0; q < lv; q += 4)                                           /* the level: stepped cells, pink at the top */
+            fb_rect(VX + VW - 6, VY + VH - 6 - q, 3, 3, q > 68 ? C_R3 : C_O5);
     }
     ui_status(now);
     ui_cpu();
+    fb_win(2, 153, 236, 83);
     for (i = 0; i < 4u; i++) {
+        char b[16], *q = b;
+        int k = (int)i;
         if (ui.page == PG_SAVE) {
-            char b[12];
             if (i == 0u) {
                 ui_num(b, ui.slot + 1);
-                ui_ov_v = ui.slot;
-                ui_ov_m = SV_N - 1;
-                ui_plate(0, "SLOT", 255, now, 1);
-                ui_ov_m = 0;
-                fb_text2_c(6 + 27, 156 + 27, b, C_INK, 0);
-            } else if (i == 1u) {
-                ui_plate(1, "DO", 255, now, 1);
-                fb_text_c(6 + 58 + 27, 156 + 31, UI_SAVE_ACT[ui.act], C_INK);
-            } else if (i == 2u) {                                       /* the keys: sounding here, or silent (the USB host only) */
-                ui_ov_v = ui.silent;
-                ui_ov_m = 1;
-                ui_plate(2, "KEYS", 255, now, 0);
-                ui_ov_m = 0;
-                fb_text_c(6 + 2 * 58 + 27, 156 + 31, ui.silent ? "SILENT" : "SOUND", ui.silent ? C_R4 : C_INK);
-            } else {
-                int pct = sk_batt ? ui_clamp(((int)sk_batt - 511) * 100 / (651 - 511), 0, 100) : 0;
-                char *q = ui_num(b, pct);
-                ui_ov_v = pct;
-                ui_ov_m = 100;
-                ui_plate(3, "BATTERY", 255, now, 0);
-                ui_ov_m = 0;
-                if (sk_batt) {
-                    fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_INK, 0);
-                    q = ui_num(b, sk_batt);
-                    fb_micro_c(6 + 3 * 58 + 27, 156 + 54, b, C_S2, 0);
-                } else
-                    fb_micro_c(6 + 3 * 58 + 27, 156 + 34, "NO READING", C_S3, 0);
-                (void)q;
-            }
+                ui_row(0, "SLOT", b, ui.slot, SV_N - 1, now, 0);
+            } else if (i == 1u)
+                ui_row(1, "DO", UI_SAVE_ACT[ui.act], 0, 0, now, 1);
+            else if (i == 2u)                                           /* the keys: sounding here, or silent (the USB host only) */
+                ui_row(2, "KEYS", ui.silent ? "SILENT" : "SOUND", 0, 0, now, ui.silent ? 2 : 1);
+            else if (sk_batt) {
+                int pct = ui_clamp(((int)sk_batt - 511) * 100 / (651 - 511), 0, 100);
+                q = ui_num(b, pct);
+                ui_str(q, "%");
+                ui_row(3, "BATTERY", b, pct, 100, now, 0);
+            } else
+                ui_row(3, "BATTERY", "NO READING", 0, 0, now, 4);
         } else if (ui.page == PG_SEQ) {
-            char b[12];
             uint8_t f = gs.sp[gs.pcur][ui.cur];
             static const char *const TN[5] = {"REST", "NOTE", "ACCENT", "SLIDE", "ACC+SLD"};
-            int t = !SP_ON(f) ? 0 : SP_SLD(f) ? (SP_ACC(f) ? 4 : 3) : SP_ACC(f) ? 2 : 1, cx = 6 + (int)i * 58 + 27;
+            int t = !SP_ON(f) ? 0 : SP_SLD(f) ? (SP_ACC(f) ? 4 : 3) : SP_ACC(f) ? 2 : 1;
             if (i == 0u) {
                 ui_num(b, ui.cur + 1);
-                ui_ov_v = ui.cur;
-                ui_ov_m = GS_NS - 1;
-                ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
+                ui_row(0, pg->k[0], b, ui.cur, GS_NS - 1, now, 0);
             } else if (i == 1u) {
                 if (SP_ON(f))
                     ui_note_name(b, ui_step_note(ui.cur));
                 else
                     ui_str(b, "-");
-                ui_ov_v = SP_ON(f) ? SP_NOTE(f) : 0;
-                ui_ov_m = 36;
-                ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, SP_ON(f) ? C_INK : C_INK2, 0);
-            } else if (i == 2u) {
-                ui_ov_v = t;
-                ui_ov_m = 4;
-                ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text_c(cx, 156 + 31, TN[t], C_INK);
-            } else {
+                ui_row(1, pg->k[1], b, SP_ON(f) ? SP_NOTE(f) : 0, 36, now, SP_ON(f) ? 0 : 4);
+            } else if (i == 2u)
+                ui_row(2, pg->k[2], TN[t], 0, 0, now, t ? 1 : 4);
+            else {
                 ui_num(b, gs.spl[gs.pcur]);
-                ui_ov_v = gs.spl[gs.pcur] - 1;
-                ui_ov_m = GS_NS - 1;
-                ui_plate(3, pg->k[3], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
+                ui_row(3, pg->k[3], b, gs.spl[gs.pcur] - 1, GS_NS - 1, now, 0);
             }
-            ui_ov_m = 0;
         } else if (ui.page == PG_SEQ4) {
             static const char *const CH[4] = {"ALWAYS", "75%", "50%", "25%"};
-            char b[12];
             uint8_t x = gs.sx[gs.pcur][ui.cur];
-            int cx = 6 + (int)i * 58 + 27;
             if (i == 0u) {
                 ui_num(b, ui.cur + 1);
-                ui_ov_v = ui.cur;
-                ui_ov_m = GS_NS - 1;
-                ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
+                ui_row(0, pg->k[0], b, ui.cur, GS_NS - 1, now, 0);
             } else if (i == 1u) {
-                char *q = ui_str(b, "x");
+                q = ui_str(b, "x");
                 ui_num(q, SX_RAT(x));
-                ui_ov_v = SX_RAT(x) - 1;
-                ui_ov_m = 3;
-                ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, SX_RAT(x) > 1 ? C_HOT : C_INK, 0);
-            } else if (i == 2u) {
-                ui_ov_v = 3 - SX_CH(x);
-                ui_ov_m = 3;
-                ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text_c(cx, 156 + 31, CH[SX_CH(x)], SX_CH(x) ? C_HOT : C_INK);
-            } else {
-                ui_ov_v = gs.psnd[gs.pcur];
-                ui_ov_m = 1;
-                ui_plate(3, pg->k[3], 255, now, 1);
-                fb_text_c(cx, 156 + 31, gs.psnd[gs.pcur] ? "OWN" : "SHARED", gs.psnd[gs.pcur] ? C_HOT : C_INK);
-            }
-            ui_ov_m = 0;
+                ui_row(1, pg->k[1], b, 0, 0, now, SX_RAT(x) > 1 ? 2 : 1);
+            } else if (i == 2u)
+                ui_row(2, pg->k[2], CH[SX_CH(x)], SX_CH(x) ? 4 - SX_CH(x) : 0, SX_CH(x) ? 4 : 0, now, SX_CH(x) ? 2 : 1);
+            else
+                ui_row(3, pg->k[3], gs.psnd[gs.pcur] ? "OWN" : "SHARED", 0, 0, now, gs.psnd[gs.pcur] ? 2 : 1);
         } else if (ui.page == PG_MOD) {
-            char b[12], *q = b;
             uint32_t mb = P_M1S + 3u * ui.mrow;
-            int cx = 6 + (int)i * 58 + 27, a = (int)gs.p[mb + 2u] - 64;
+            int a = (int)gs.p[mb + 2u] - 64;
             if (i == 0u) {
                 ui_num(b, ui.mrow + 1);
-                ui_ov_v = ui.mrow;
-                ui_ov_m = GS_NMOD - 1;
-                ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, C_INK, 0);
-            } else if (i == 1u) {
-                ui_ov_v = gs.p[mb];
-                ui_ov_m = GS_NMSRC - 1;
-                ui_plate(1, pg->k[1], 255, now, 1);
-                ui_fit_c(cx, 156 + 31, GS_MSRC_NAME[gs.p[mb] % GS_NMSRC], gs.p[mb] ? C_INK : C_DIM, 54);
-            } else if (i == 2u) {
-                ui_ov_v = gs.p[mb + 1u];
-                ui_ov_m = GS_NMDST - 1;
-                ui_plate(2, pg->k[2], 255, now, 1);
-                ui_fit_c(cx, 156 + 31, GS_MDST_NAME[gs.p[mb + 1u] % GS_NMDST], C_INK, 54);
-            } else {
+                ui_row(0, pg->k[0], b, 0, 0, now, 1);
+            } else if (i == 1u)
+                ui_row(1, pg->k[1], GS_MSRC_NAME[gs.p[mb] % GS_NMSRC], 0, 0, now, gs.p[mb] ? 1 : 4);
+            else if (i == 2u)
+                ui_row(2, pg->k[2], GS_MDST_NAME[gs.p[mb + 1u] % GS_NMDST], 0, 0, now, 1);
+            else {
                 if (a > 0)
                     *q++ = '+';
                 ui_num(q, a);
-                ui_ov_v = gs.p[mb + 2u];
-                ui_ov_m = 127;
-                ui_plate(3, pg->k[3], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, a ? b : "0", a ? C_HOT : C_INK, 0);
+                ui_row(3, pg->k[3], b, gs.p[mb + 2u], 127, now, a ? 2 : 0);
             }
-            ui_ov_m = 0;
         } else if (ui.page == PG_PERF && i < 3u) {
-            char b[12];
-            int cx = 6 + (int)i * 58 + 27;
             if (i == 0u) {
                 ui_num(b, gs.mac);
-                ui_ov_v = gs.mac;
-                ui_ov_m = 127;
-                ui_plate(0, pg->k[0], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, b, gs.mac ? C_HOT : C_INK, 0);
-            } else if (i == 1u) {
-                ui_ov_v = gs.mkind;
-                ui_ov_m = GS_NMAC - 1;
-                ui_plate(1, pg->k[1], 255, now, 1);
-                fb_text_c(cx, 156 + 31, GS_MAC_NAME[gs.mkind % GS_NMAC], C_INK);
-            } else {
+                ui_row(0, pg->k[0], b, gs.mac, 127, now, gs.mac ? 2 : 0);
+            } else if (i == 1u)
+                ui_row(1, pg->k[1], GS_MAC_NAME[gs.mkind % GS_NMAC], 0, 0, now, 1);
+            else {
                 int v = (int)gs.djf - 64;
-                char *q = b;
                 if (v > 0)
                     *q++ = '+';
                 ui_num(q, v);
-                ui_ov_v = gs.djf;
-                ui_ov_m = 127;
-                ui_plate(2, pg->k[2], 255, now, 1);
-                fb_text2_c(cx, 156 + 27, v ? b : "0", v ? C_HOT : C_INK, 0);
+                ui_row(2, pg->k[2], b, gs.djf, 127, now, v ? 2 : 0);
             }
-            ui_ov_m = 0;
         } else if (ui.page == PG_SEQ3) {
             static const char *const TH[3] = {"TURN >", "A < B", "ROLL"};
-            char b[12], *p = b;
-            ui_ov_v = 0;
-            ui_ov_m = 1;
-            ui_plate((int)i, pg->k[i], 255, now, 1);
-            ui_ov_m = 0;
             if (i == 1u) {
-                p = b;
-                *p++ = (char)('A' + (gs.pcur + GS_NP - 1) % GS_NP);
-                p = ui_str(p, "<");
-                *p++ = (char)('A' + gs.pcur);
-                p = ui_str(p, ">");
-                *p++ = (char)('A' + (gs.pcur + 1) % GS_NP);
-                *p = 0;
-                fb_text_c(6 + 58 + 27, 156 + 31, b, C_INK);
+                *q++ = (char)('A' + (gs.pcur + GS_NP - 1) % GS_NP);
+                q = ui_str(q, " < ");
+                *q++ = (char)('A' + gs.pcur);
+                q = ui_str(q, " > ");
+                *q++ = (char)('A' + (gs.pcur + 1) % GS_NP);
+                *q = 0;
+                ui_row(1, pg->k[1], b, 0, 0, now, 1);
             } else if (i == 3u) {
                 if (ui.shift > 0)
-                    *p++ = '+';
-                ui_num(p, ui.shift);
-                fb_text2_c(6 + 3 * 58 + 27, 156 + 27, b, C_INK, 0);
+                    *q++ = '+';
+                ui_num(q, ui.shift);
+                ui_row(3, pg->k[3], b, 0, 0, now, 1);
             } else
-                fb_text_c(6 + (int)i * 58 + 27, 156 + 31, TH[i == 0u ? 0 : 2], C_INK);
+                ui_row(k, pg->k[i], TH[i == 0u ? 0 : 2], 0, 0, now, 1);
         } else
-            ui_plate((int)i, pg->k[i], pg->p[i], now, 1);
+            ui_plate(k, pg->k[i], pg->p[i], now, 1);
     }
     if (ui.toast_t && now - ui.toast_t < 1200u) {
         int w = fb_text_w(ui.toast) + 20;

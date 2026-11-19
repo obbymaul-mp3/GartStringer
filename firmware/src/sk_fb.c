@@ -20,7 +20,7 @@ static void sk_pump(void);
 #define FB_TS 16
 #define FB_TX (FB_W / FB_TS)
 #define FB_TY (FB_H / FB_TS)
-#define FB_PAL 64
+#define FB_PAL 128
 
 /* the palette's indexes: black, an accent ramp (it changes with the world and the page), glass greys,
  * red, a glow of dark reds for the backdrop, and the text */
@@ -34,14 +34,21 @@ enum {
     C_B0, C_B1, C_B2, C_B3, C_B4, C_B5,                        /* the backdrop's glow, dark to warm */
     C_INK, C_INK2,                                             /* text: warm white, warm grey */
     C_GRID0, C_LED, C_GRID1, C_GRID2, C_DIM, C_DIM2, C_PLATE,  /* the scope's grids, a lamp on, dim greys, a plate */
-    C_BT0, C_BT1, C_BT2, C_BT3, C_BT4, C_BT5                   /* the battery orb: green, lime, yellow, amber, orange, red (the same in every look) */
+    C_BT0, C_BT1, C_BT2, C_BT3, C_BT4, C_BT5,                  /* the battery orb: green, lime, yellow, amber, orange, red */
+    C_OUT, C_STEEL,                                            /* the ink of every outline and hard shadow; a blade's steel */
+    C_G0, C_G1, C_G2, C_G3, C_G4,                              /* the gems: gold, violet, pink, teal, orange */
+    C_WORLD,                                                   /* the world's own colour */
+    C_WA, C_SEL, C_ROW,                                        /* a window's top, a row that is selected, a row at rest */
+    C_GD0, C_GD1, C_GD2, C_GD3, C_GD4,                         /* the gems' lower halves */
+    C_VEIN,                                                    /* a string at rest */
+    C_SC0 = 64                                                 /* sixteen colours of the world's scene */
 };
-#define FB_NCOL 46u
+#define FB_NCOL 80u
 
-#define FB_NTHEME 18
-/* eighteen looks of one palette, three for each world (the three are one set of colours: a world is one look). Each world is black, a
- * chrome of its own (the S run: lilac, gold, gunmetal, ice, pearl, black steel) and one signal colour (the O run: pink, orange, acid green, cyan, mint, red). The
- * reds and the battery's colours are the same in all of them. The table, and the chrome emblems, come from tools/gen_look.py. */
+#define FB_NTHEME 6
+/* six looks, one for each world: the interface's colours are the same in all of them (indigo windows, parchment, gold for on,
+ * pink for alive); the world's own colour and the sixteen colours of its scene change. The table, the scenes, the lettering and the
+ * sprites come from tools/gen_fantasy.py. */
 #include "gs_art.h"
 static uint8_t fb[FB_W * FB_H] SK_POOL;
 static uint16_t fb_lut[FB_PAL];                  /* index -> RGB565, byte-swapped as the panel takes it */
@@ -50,9 +57,8 @@ static uint16_t fb_dma[2][FB_W * FB_TS] SK_POOL;
 static uint8_t fb_full = 1;                       /* resend every tile at the next present */
 static int16_t fb_cx0, fb_cy0, fb_cx1 = FB_W, fb_cy1 = FB_H;   /* the clip rectangle */
 
-static uint8_t fb_cur[48][3], fb_tgt[48][3];     /* the palette now, and where it is going: R G B */
+static uint8_t fb_cur[FB_NCOL][3], fb_tgt[FB_NCOL][3];     /* the palette now, and where it is going: R G B */
 static uint8_t fb_fade_on, fb_started;
-static uint8_t fb_tint[5] = {0, 0, 0, 0, 128};    /* a preset's tint over its world's palette: r g b, how much (0..255), brightness (128 = as is) */
 
 static void fb_lut_set(uint32_t i)
 {
@@ -73,11 +79,6 @@ static void fb_theme(uint32_t t)
         uint32_t k;
         for (k = 0; k < 3u; k++) {
             int c = (int)((rgb[i] >> (16 - 8 * k)) & 255u);
-            if (i >= 1u && i <= 24u) {                                    /* sky, water, land, the sun, the stars: not the lights and the interface */
-                c = c * fb_tint[4] / 128;
-                c = c > 255 ? 255 : c;
-                c += ((int)fb_tint[k] - c) * (int)fb_tint[3] / 256;
-            }
             fb_tgt[i][k] = (uint8_t)c;
         }
         if (!fb_started) {
@@ -94,8 +95,6 @@ static void fb_theme(uint32_t t)
 static void fb_theme_snap(uint32_t t)            /* at once (the crash and update screens, the splash) */
 {
     fb_started = 0;
-    fb_tint[0] = fb_tint[1] = fb_tint[2] = fb_tint[3] = 0;
-    fb_tint[4] = 128;
     fb_theme(t);
 }
 
@@ -223,41 +222,132 @@ static void fb_disc(int cx, int cy, int r, uint8_t c)
 }
 
 /* ------------------------------------------------------------------ text --- */
-/* Chrome. A surface is a run of sixteen levels: a pale sky at the top (0), a thin dark horizon (7), then a bright ground that darkens
- * to the bottom (15). FB_CHR turns a level into the world's chrome. */
-static const uint8_t FB_CHR[16] = {C_HOT, C_S6, C_S6, C_S5, C_S5, C_S4, C_S3, C_K1, C_HOT, C_S6, C_S5, C_S4, C_S3, C_S2, C_S1, C_S0};
-/* a bar of chrome: its rows run the levels lo to hi from top to bottom */
+/* Stone. A surface is a run of sixteen levels, lit from above: pale at the top (0), dark at the bottom (15). FB_CHR turns a level into
+ * the palette's stone. (The names are from the look before this one, which was chrome.) */
+static const uint8_t FB_CHR[16] = {C_S5, C_S5, C_S4, C_S4, C_S4, C_S3, C_S3, C_S3, C_S2, C_S2, C_S2, C_S1, C_S1, C_S1, C_S0, C_S0};
 static void fb_chrome(int x, int y, int w, int h, int lo, int hi)
 {
     int r;
     for (r = 0; r < h; r++)
         fb_hline(x, y + r, w, FB_CHR[(lo + (hi - lo) * r / (h > 1 ? h - 1 : 1)) & 15]);
 }
-/* a small plate of chrome with its corners off: a key, a tile, a tab */
-static void fb_chrome_tile(int x, int y, int w, int h)
+/* a gem: a flat block of a colour, its top edge lit, its lower half a shade darker, an ink line round it */
+static void fb_gem(int x, int y, int w, int h, uint8_t c, uint8_t hi, uint8_t lo)
 {
-    fb_chrome(x, y, w, h, 1, 13);
-    fb_pset(x, y, C_BG); fb_pset(x + w - 1, y, C_BG); fb_pset(x, y + h - 1, C_BG); fb_pset(x + w - 1, y + h - 1, C_BG);
+    fb_rect(x, y, w, h, C_OUT);
+    if (w < 3 || h < 3)
+        return;
+    fb_rect(x + 1, y + 1, w - 2, h - 2, c);
+    fb_hline(x + 1, y + 1, w - 2, hi);
+    fb_rect(x + 1, y + 1 + (h - 2) / 2, w - 2, h - 2 - (h - 2) / 2, lo);
 }
-/* a picture from gs_art.h, centred on (cx, cy): runs of chrome levels (16 nothing, 17 the rim, 18 ink) */
-static void fb_art(const uint8_t *a, int cx, int cy)
+static void fb_chrome_tile(int x, int y, int w, int h) { fb_gem(x, y, w, h, C_O5, C_O7, C_O3); }
+/* a world's scene: ww by hh pixels of it, from its row sy and centred across, with its top left at (x, y) */
+static void fb_scene(int wd, int sy, int x, int y, int ww, int hh)
 {
-    int w = a[0], h = a[1], x0 = cx - w / 2, y0 = cy - h / 2, x = 0, y = 0;
-    const uint8_t *p = a + 2;
-    while (y < h) {
-        int n = *p++, v = *p++;
-        while (n > 0) {
-            int run = n < w - x ? n : w - x;
-            if (v != 16)
-                fb_hline(x0 + x, y0 + y, run, v < 16 ? FB_CHR[v] : C_K1);
-            x += run;
-            n -= run;
-            if (x >= w) {
-                x = 0;
-                y++;
-            }
+    const fb_scene_t *sc = &SK_SCENE[(uint32_t)wd % FB_NTHEME];
+    int sx = (FB_W - ww) / 2, r, i, i0 = 0, i1 = ww;
+    if (x < fb_cx0)                                                          /* clipped once, then written straight into the frame */
+        i0 = fb_cx0 - x;
+    if (x + i1 > fb_cx1)
+        i1 = fb_cx1 - x;
+    for (r = 0; r < hh; r++) {
+        const uint8_t *p;
+        uint8_t *d;
+        if (sy + r < 0 || sy + r >= sc->h || y + r < fb_cy0 || y + r >= fb_cy1)
+            continue;
+        p = sc->d + (uint32_t)(sy + r) * (FB_W / 2);
+        d = fb + (uint32_t)(y + r) * FB_W + (uint32_t)x;
+        for (i = i0; i < i1; i++) {
+            int u = sx + i;
+            d[i] = (uint8_t)(C_SC0 + ((u & 1) ? (p[u >> 1] & 15u) : (p[u >> 1] >> 4)));
         }
     }
+}
+/* the lettering of names (gs_art.h): k is its scale. ramp: one colour (0) or the gold of the title, light to dark down each letter */
+static int fb_bl_w(const char *s, int k)
+{
+    int w = 0;
+    for (; *s; s++)
+        w += (BL_G[(uint8_t)*s & 127u].w + 1) * k;
+    return w ? w - k : 0;
+}
+static int fb_bl_raw(int x, int y, const char *s, int k, uint8_t c, int gold)
+{
+    static const uint8_t GR[14] = {C_O7, C_O7, C_O6, C_O6, C_O5, C_O5, C_O3, C_O4, C_O5, C_O4, C_O3, C_O2, C_O2, C_O2};
+    int x0 = x;
+    for (; *s; s++) {
+        const bl_glyph_t *g = &BL_G[(uint8_t)*s & 127u];
+        int r, i;
+        for (r = 0; r < g->n; r++) {
+            uint32_t row = BL_ROWS[g->off + r];
+            uint8_t cc = gold ? GR[(g->top + r) > 13 ? 13 : (g->top + r)] : c;
+            for (i = 0; row; i++, row = (row << 1) & 0xFFFFu)
+                if (row & 0x8000u)
+                    fb_rect(x + i * k, y + (g->top + r) * k, k, k, cc);
+        }
+        x += (g->w + 1) * k;
+    }
+    return x - x0;
+}
+/* a name: an ink outline (a pixel all round, two below), then the letters */
+static int fb_bl(int x, int y, const char *s, int k, uint8_t c, int gold)
+{
+    static const int8_t O[9][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}, {1, 2}};
+    int i;
+    for (i = 0; i < 9; i++)
+        fb_bl_raw(x + O[i][0] * k, y + O[i][1] * k, s, k, C_OUT, 0);
+    return fb_bl_raw(x, y, s, k, c, gold);
+}
+static void fb_sword(int x, int y)
+{
+    int r, i;
+    for (r = 0; r < 8; r++)
+        for (i = 0; i < 14; i++)
+            if (SPR_SWORD[r][i] != 255u)
+                fb_pset(x + i, y + r, SPR_SWORD[r][i]);
+}
+static void fb_heart(int x, int y)
+{
+    int r, i;
+    for (r = 0; r < 7; r++)
+        for (i = 0; i < 7; i++)
+            if (SPR_HEART[r][i] != 255u)
+                fb_pset(x + i, y + r, SPR_HEART[r][i]);
+}
+/* a small diamond: a world's mark, a playhead's top */
+static void fb_diamond(int cx, int cy, int r, uint8_t c)
+{
+    int d;
+    for (d = -r - 1; d <= r + 1; d++)
+        fb_hline(cx - (r + 1 - (d < 0 ? -d : d)), cy + d, 2 * (r + 1 - (d < 0 ? -d : d)) + 1, C_OUT);
+    for (d = -r + 1; d <= r - 1; d++)
+        fb_hline(cx - (r - 1 - (d < 0 ? -d : d)), cy + d, 2 * (r - 1 - (d < 0 ? -d : d)) + 1, c);
+}
+/* a window: an ink line, a parchment line, an indigo ground that darkens down it in six steps (a row or two of checker between
+ * one step and the next), an inner line. Drawn in whole rows: it is under everything, every frame. */
+static void fb_win2(int x, int y, int w, int h, int inner)
+{
+    int r;
+    fb_rect(x, y, w, h, C_OUT);
+    fb_frame(x + 1, y + 1, w - 2, h - 2, C_INK);
+    for (r = 2; r < h - 2; r++) {
+        int t = (h - 3 - r) * 5 * 16 / (h > 5 ? h - 5 : 1), l = t >> 4, f = t & 15;      /* the level, and how far to the next */
+        if (f >= 12 && l < 5)
+            l++, f = 0;
+        fb_hline(x + 2, y + r, w - 4, (uint8_t)(C_B0 + (l > 5 ? 5 : l)));
+        if (f >= 4 && l < 5)
+            fb_checker(x + 2, y + r, w - 4, 1, (uint8_t)(C_B0 + l + 1));
+    }
+    if (inner)
+        fb_frame(x + 3, y + 3, w - 6, h - 6, C_S2);
+}
+static void fb_win(int x, int y, int w, int h) { fb_win2(x, y, w, h, 1); }
+/* a well: what is read sits in one */
+static void fb_well(int x, int y, int w, int h)
+{
+    fb_rect(x, y, w, h, C_BG);
+    fb_frame(x, y, w, h, C_S2);
 }
 /* a circle's outline */
 static void fb_ring(int cx, int cy, int r, uint8_t c)

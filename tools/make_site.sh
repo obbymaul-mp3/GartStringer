@@ -17,7 +17,7 @@ for f in index.html play.js worklet.js gartstringer.wasm; do
 done
 mkdir -p "$OUT/fonts" "$OUT/images" "$OUT/install" "$OUT/play"
 cp web/index.html web/site.css web/favicon.svg web/installer.js web/fm1pkg.js web/fm1ota.js web/fm1info.js "$OUT/"
-cp web/fonts/Sora.ttf web/fonts/OFL-Sora.txt "$OUT/fonts/"
+cp web/fonts/DepartureMono.otf web/fonts/OFL-DepartureMono.txt "$OUT/fonts/"
 cp docs/images/*.png "$OUT/images/"
 cp web/install/index.html "$OUT/install/"
 cp "$WEB/index.html" "$WEB/play.js" "$WEB/worklet.js" "$WEB/gartstringer.wasm" "$OUT/play/"
